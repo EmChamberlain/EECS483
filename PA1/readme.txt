@@ -1,69 +1,16 @@
-                      Programming Languages - Wes Weimer 
-                            (Assignment Version 3)
+Matthew Chamberlain, mattcham, 40136524
 
-This package shows the same simple program written in many languages. The
-program reads lines from standard input and outputs them in reverse sorted
-order. This is somewhat similar to what you are asked to do for PA1. 
-Notably, it shows you how all of the languages handle string input, 
-lists, and sorting (with higher-order functions, when applicable). 
+testcase.list contains 500 english words taken from https://github.com/dwyl/english-words
 
-All of the files are heavily commented. However, it is still your
-responsibility to read language tutorials and documentation; this 
-package will not teach you everything you need to know. 
+python rosetta.py (on CAEN)
+rosetta.py takes data from stdin and outputs to stdout
 
-The files are: 
+python rosetta.cl (on CAEN)
+rosetta.cl takes data from stdin and outputs to stdout
 
-readme.txt      This explanation.
-example.list    Example input file 
-unsort-c.c      C version
-unsort-cool.cl  Cool version
-unsort-js.js    JavaScript version
-unsort-ml.ml    OCaml version 
-unsort-py.py    Python version
-unsort-rb.rb    Ruby version
-unsort-hs.hs    Haskell version
+Since I am very comfortable with python I decided to do the python implementation first. I attempted to use nothing but lists in preparation for having to make my own data structures in my cool implementation. Therefore, I ended up storing the edges of the graph as a list of tuples of strings. In my python implementation, I was able to use many of the convenience aspects of python to get it done and working perfectly in very little time. There is only one thing I know is bad and that is the sort every time I insert into S. Since I already had an insertion sort implementation written for me in cool I new I didn't need to worry about writing it out in python. My overall goal with the python implementation was to make an outline for what I needed to do in cool. I did not want to do too many syntactically crazy things in python because it would only make my life harder later
 
-Using the Ruby Version:
+This was my first program in cool so I had to get a hang of the syntax. I essentially just attempted to port my python version over line by line with some exceptions like the aforementioned insertion sort as well as having to implement a linked list that held tuples of strings as well as had some other functions I would need. There were two main "hacky" things I did in the cool version. The major one was that I just implemented a list of tuples of strings and when I only needed a list of strings I simply set the second in the tuple to the empty string. Second, I mixed and matched the functions in charge of changing the list. By that I mean the in my main function, I was editing the lists manually instead of calling functions to do it.
 
-        $ ruby unsort-rb.rb < example.list
+The cool implementation was definitely harder not just because of the different syntax but because of having to implement so much of the overhead that python just offers naturally. I picked up cool relatively fast and definitely learned more about it than I thought I could.
 
-Using the JavaScript Version:
-
-        $ node unsort-js.js < example.list
-
-Using the Python Version:
-
-        $ python unsort-py.py < example.list
-
-Using the OCaml Version:
-
-        $ ocaml unsort-ml.ml < example.list
-
-Using the C Version:
-        
-        $ gcc -o unsort-c unsort-c.c
-        $ ./unsort-c < example.list 
-
-Using the Cool Version:
-
-        $ cool unsort-cool.cl < example.list 
-
-Using the Haskell Version:
-        
-        $ ghc -o unsort-hs unsort-hs.hs
-        $ ./unsort-hs < example.list 
-
-C is not an interpreted languages -- you have to compile it first. For our
-purposes, Haskell is not an interpreted language either. 
-
-Hint: read the C one last. It's 5-10 times larger than the others. 
-
-All of the versions should give the same output:
-
-        $ ocaml unsort-ml.ml < example.list
-        ruby
-        python
-        javascript
-        ocaml
-        cool
-        c
