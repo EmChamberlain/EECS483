@@ -3,14 +3,16 @@ import sys
 from lex import LexToken
 import yacc as yacc
 
+# reading in the lines in a pythonic way
 lines = None
 with open(sys.argv[1], 'r') as f:
     lines = f.readlines()
-EOF_lineno = 0
+EOF_lineno = 0 #  this is for an EOF error later where we might need the lineno
 
+# get the tokens like in the video guide
 def read_token():
     global lines
-    to_return = lines[0].rstrip('\r\n')
+    to_return = lines[0].rstrip('\r\n')  # not fully tested but this seems to preserve string literal whitespace
     lines = lines[1:]
     return to_return
 
@@ -43,7 +45,7 @@ class Lexer(object):
         tok.lineno = lineno
         tok.lexpos = 0
 
-        EOF_lineno = lineno
+        EOF_lineno = lineno  # this keeps track of the most recent lineno
         return tok
 
 # list of terminators
@@ -94,6 +96,7 @@ tokens = (
 
 # precedence
 precedence = (
+    ('left', 'IN'),  # im not positive IN needs to be less binding than LARROW
     ('right', 'LARROW'),
     ('left', 'NOT'),
     ('nonassoc', 'LE', 'LT', 'EQUALS'),
@@ -103,10 +106,12 @@ precedence = (
     ('left', 'TILDE'),
     ('left', 'AT'),
     ('left', 'DOT'),
+
 )
 
 
 # rules
+# error rule
 def p_error(p):
     if p:
         print("ERROR: " + str(p.lineno)
@@ -116,6 +121,7 @@ def p_error(p):
         print("EORROR: " + str(EOF_lineno)
               + ": Parser: syntax error near EOF")
 
+# classlist rules
 def p_program_firstclasslist(p):
     'program : firstclasslist'
     p[0] = p[1]
@@ -132,6 +138,7 @@ def p_classlist_class(p):
     'classlist : class SEMI classlist'
     p[0] = [p[1]] + p[3]
 
+# class rules
 def p_class_noinherits(p):
     'class : CLASS type LBRACE featurelist RBRACE'
     p[0] = (p.lineno(1), 'no_inherits', p[2], p[4])
@@ -139,10 +146,13 @@ def p_class_noinherits(p):
 def p_class_inherits(p):
     'class : CLASS type INHERITS type LBRACE featurelist RBRACE'
     p[0] = (p.lineno(1), 'inherits', p[2], p[4], p[6])
+
+# type rule
 def p_type(p):
     'type : TYPE'
     p[0] = (p.lineno(1), 'type', p[1])
 
+# featurelist rules
 def p_featurelist_epsilon(p):
     'featurelist : '
     p[0] = []
@@ -151,47 +161,75 @@ def p_featurelist_feature(p):
     'featurelist : feature SEMI featurelist'
     p[0] = [p[1]] + p[3]
 
+# feature rules
+def p_feature_method(p):
+    'feature : identifier LPAREN formallistfirst RPAREN COLON type LBRACE exp RBRACE'
+    p[0] = (p[1][0], 'method', p[1], p[3], p[6], p[8])
+
 def p_feature_attributenoinit(p):
     'feature : identifier COLON type'
-    p[0] = (p.lineno(1), 'attribute_no_init', p[1], p[3])
+    p[0] = (p[1][0], 'attribute_no_init', p[1], p[3])
 
 def p_feature_attributeinit(p):
     'feature : identifier COLON type LARROW exp'
-    p[0] = (p.lineno(1), 'attribute_init', p[1], p[3], p[5])
+    p[0] = (p[1][0], 'attribute_init', p[1], p[3], p[5])
 
-def p_feature_method(p):
-    'feature : identifier LPAREN formallist RPAREN COLON type LBRACE exp RBRACE'
-    p[0] = (p.lineno(1), 'method', p[1], p[3], p[6], p[8])
 
-def p_formallist_epsilon(p):
-    'formallist : '
-    p[0] = []
+# formallist rules
+def p_formallist_restsolo(p):
+    'formallistrest : formal'
+    p[0] = [p[1]]
 
-def p_formallist_formal(p):
-    'formallist : formal COMMA formallist'
+def p_formallist_rest(p):
+    'formallistrest : formal COMMA formallistrest'
     p[0] = [p[1]] + p[3]
 
+def p_formallist_firstepsilon(p):
+    'formallistfirst : '
+    p[0] = []
+
+def p_formallist_firstsolo(p):
+    'formallistfirst : formal'
+    p[0] = [p[1]]
+
+def p_formallist_first(p):
+    'formallistfirst : formal COMMA formallistrest'
+    p[0] = [p[1]] + p[3]
+
+# formal rule
 def p_formal(p):
     'formal : identifier COLON type'
-    p[0] = (p.lineno(1), 'formal', p[1], p[3])
+    p[0] = (p[1][0], 'formal', p[1], p[3])
 
+# identifier rule
 def p_identifier(p):
     'identifier : IDENTIFIER'
     p[0] = (p.lineno(1), 'identifier', p[1])
 
 
-def p_explistcomma_epsilon(p):
-    'explistcomma : '
-    p[0] = []
-
+# explist comma delimited rules
 def p_explistcomma_single(p):  # this single is to take care of the end of the list
-    'explistcomma : exp'
+    'explistcommarest : exp'
     p[0] = [p[1]]
 
-def p_explistcomma_comma(p):
-    'explistcomma : exp COMMA explistcomma'
+def p_explistcomma_rest(p):
+    'explistcommarest : exp COMMA explistcommarest'
     p[0] = [p[1]] + p[3]
 
+
+def p_explistcomma_firstepsilon(p):  # this is to take care of no exps
+    'explistcommafirst : '
+    p[0] = []
+
+def p_explistcomma_firstsolo(p):  # this is to take care of one exp
+    'explistcommafirst : exp'
+    p[0] = [p[1]]
+
+def p_explistcomma_first(p):
+    'explistcommafirst : exp COMMA explistcommarest'
+    p[0] = [p[1]] + p[3]
+
+# explist semicolon delimited rules
 def p_explistsemi_epsilon(p):
     'explistsemirest : '
     p[0] = []
@@ -205,6 +243,9 @@ def p_explistsemi_first(p):
     p[0] = [p[1]] + p[3]
 
 
+
+# exp rules
+# basic exp rules
 def p_exp_assign(p):
     'exp : identifier LARROW exp'
     p[0] = (p[1][0], 'assign', p[1], p[3])
@@ -245,18 +286,20 @@ def p_exp_divide(p):
     'exp : exp DIVIDE exp'
     p[0] = (p[1][0], 'divide', p[1], p[3])
 
+# dispatch exp rules
 def p_exp_dynamicdispatch(p):
-    'exp : exp DOT identifier LPAREN explistcomma RPAREN'
+    'exp : exp DOT identifier LPAREN explistcommafirst RPAREN'
     p[0] = (p[1][0], 'dynamic_dispatch', p[1], p[3], p[5])
 
 def p_exp_staticdispatch(p):
-    'exp : exp AT type DOT identifier LPAREN explistcomma RPAREN'
+    'exp : exp AT type DOT identifier LPAREN explistcommafirst RPAREN'
     p[0] = (p[1][0], 'static_dispatch', p[1], p[3], p[5], p[7])
 
 def p_exp_selfdispatch(p):
-    'exp : identifier LPAREN explistcomma RPAREN'
+    'exp : identifier LPAREN explistcommafirst RPAREN'
     p[0] = (p[1][0], 'self_dispatch', p[1], p[3])
 
+# block exp rules
 def p_exp_if(p):
     'exp : IF exp THEN exp ELSE exp FI'
     p[0] = (p.lineno(1), 'if', p[2], p[4], p[6])
@@ -269,6 +312,7 @@ def p_exp_block(p):
     'exp : LBRACE explistsemifirst RBRACE'
     p[0] = (p.lineno(1), 'block', p[2])
 
+# binding rules
 def p_binding_noinit(p):
     'binding : identifier COLON type'
     p[0] = (p[1][0], 'let_binding_no_init', p[1], p[3])
@@ -276,6 +320,8 @@ def p_binding_noinit(p):
 def p_binding_init(p):
     'binding : identifier COLON type LARROW exp'
     p[0] = (p[1][0], 'let_binding_init', p[1], p[3], p[5])
+
+# binding list rules
 def p_bindinglist_epsilon(p):
     'bindinglistrest : '
     p[0] = []
@@ -288,15 +334,20 @@ def p_bindinglist_rest(p):
     'bindinglistrest : binding COMMA bindinglistrest'
     p[0] = [p[1]] + p[3]
 
+def p_bindinglist_firstonly(p): # this is to take care of just one binding
+    'bindinglistfirst : binding'
+    p[0] = [p[1]]
+
 def p_bindinglist_first(p):
     'bindinglistfirst : binding COMMA bindinglistrest'
     p[0] = [p[1]] + p[3]
 
+# let rule
 def p_exp_let(p):
     'exp : LET bindinglistfirst IN exp'
     p[0] = (p.lineno(1), 'let', p[2], p[4])
 
-
+# case elem list rules
 def p_caseelemlist_epsilon(p):
     'caseelemlistrest : '
     p[0] = []
@@ -309,14 +360,17 @@ def p_caseelemlist_first(p):
     'caseelemlistfirst : caseelem SEMI caseelemlistrest'
     p[0] = [p[1]] + p[3]
 
+# case elem rules
 def p_caseelem(p):
     'caseelem : identifier COLON type RARROW exp'
     p[0] = (p[1], p[3], p[5])
 
+# case rule
 def p_exp_case(p):
     'exp : CASE exp OF caseelemlistfirst ESAC'
     p[0] = (p.lineno(1), 'case', p[2], p[4])
 
+# simple rules
 def p_exp_new(p):
     'exp : NEW type'
     p[0] = (p.lineno(1), 'new', p[2])
@@ -325,6 +379,7 @@ def p_exp_isvoid(p):
     'exp : ISVOID exp'
     p[0] = (p.lineno(1), 'isvoid', p[2])
 
+# comparison rules
 def p_exp_lt(p):
     'exp : exp LT exp'
     p[0] = (p[1][0], 'lt', p[1], p[3])
@@ -344,6 +399,7 @@ def p_exp_negate(p):
     'exp : TILDE exp'
     p[0] = (p.lineno(1), 'negate', p[2])
 
+# paren rule
 def p_exp_parens(p):
     'exp : LPAREN exp RPAREN'
     p[0] = (p.lineno(1), 'paren', p[2])
@@ -358,33 +414,35 @@ ast = parser.parse(lexer=custom_lexer)
 out_filename = (sys.argv[1])[:-3] + "ast"
 out_string = ""
 
-def list_str(ast, list_method):  # list_method is a method just like the video guide
+# list output
+def list_str(ast, list_method):  # list_str is a method just like the video guide, list_method is a string method
     global out_string
     out_string += str(len(ast)) + "\n"
     for e in ast:
         list_method(e)
 
+
+# class output
 def class_str(ast):
     global out_string
     identifier_str(ast[2])
     out_string += str(ast[1]) + "\n"
-    feature_list = None
     if ast[1] == 'inherits':
-        identifier_str(ast[3])  # using this function for identifiers and types
-        feature_list = ast[4]
+        identifier_str(ast[3])
+        list_str(ast[4], feature_str)
     elif ast[1] == 'no_inherits':
-        out_string += ast[1] + "\n"
-        feature_list = ast[3]
+        list_str(ast[3], feature_str)
     else:
         print('class_str defaulted')
         exit(1)
-    list_str(feature_list, feature_str)
 
 
+# identifier/type output, using this function for identifiers and types
 def identifier_str(ast):
     global out_string
     out_string += str(ast[0]) + "\n" + ast[2] + "\n"
 
+# feature output
 def feature_str(ast):
     global out_string
     out_string += ast[1] + "\n"
@@ -404,8 +462,9 @@ def feature_str(ast):
         print("feature_str defaulted")
         exit(1)
 
-#  could possibly break this function down more but I dont think it would be more readable
-def exp_str(ast):
+
+# expression output
+def exp_str(ast):  # could possibly break this function down more but I dont think it would be more readable
     global out_string
     if ast[1] == 'paren':  # this skips the auto output for the paren expression
         exp_str(ast[2])
@@ -463,10 +522,12 @@ def exp_str(ast):
         print('exp_str defaulted')
         exit(1)
 
+# formal output
 def formal_str(ast):
-    global out_string
-    out_string += ast[2] + "\n" + ast[3] + "\n"
+    identifier_str(ast[2])
+    identifier_str(ast[3])
 
+# binding output
 def binding_str(ast):
     global out_string
     out_string += ast[1] + "\n"
@@ -481,13 +542,16 @@ def binding_str(ast):
         print('binding_str defaulted')
         exit(1)
 
+# case element output
 def caseelem_str(ast):
     global out_string
     identifier_str(ast[0])
     identifier_str(ast[1])
     exp_str(ast[2])
 
+# output the program recusively which is a list of classes
 list_str(ast, class_str)
+# write the program to file
 with open(out_filename, 'w+') as f:
     f.write(out_string)
 

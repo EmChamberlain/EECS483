@@ -18,8 +18,7 @@ Class Main -- Main is where the program starts
                  cycle : Bool <- false
              in {
                while not done loop {
-                 let s_a : String <- in_
-                 string(), s_b : String <- in_string() in
+                 let s_a : String <- in_string(), s_b : String <- in_string() in
                  if s_b = "" then (* if we are done reading lines
                                  * then s will be "" *) 
                    done <- true 
