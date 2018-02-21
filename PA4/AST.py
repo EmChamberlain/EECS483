@@ -38,6 +38,9 @@ class Identifier(object):
     def __eq__(self, other):
         return self.id == other.id
 
+    def __ne__(self, other):
+        return self.id != other.id
+
 class Feature(object):
     name_id = None
 
@@ -121,6 +124,18 @@ class Expression(object):
     def __str__(self):
         return self.lineno + "\n" + self.exp_name + "\n"
 
+    def find_type(self, _i, idents_types):
+        for i, t in idents_types:
+            if i == _i:
+                return t
+        return None
+
+    def get_type(self, idents_types):
+        return None
+
+    def get_value(self, idents_types):
+        return None
+
 
 
 class Assign(Expression):
@@ -135,6 +150,22 @@ class Assign(Expression):
 
     def __str__(self):
         return Expression.__str__(self) + str(self.var_id) + str(self.rhs_exp)
+
+    def get_type(self, idents_types):
+        rhs_type = self.rhs_exp.get_type(idents_types)
+        var_type = self.find_type(self.var_id)
+        if var_type is None:
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: assign error None")
+            exit(1)
+        if rhs_type != var_type:
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: assign error " + var_type)
+            exit(1)
+        return rhs_type
+
+    def get_value(self, idents_types):
+        return self.rhs_exp.get_value(idents_types)
 
 
 
@@ -157,6 +188,12 @@ class Dynamic_Dispatch(Expression):
         for exp in self.args_exp_list:
             to_return += str(exp)
         return to_return
+
+    def get_type(self):
+        return None
+
+    def get_value(self):
+        return None
 
 
 class Static_Dispatch(Expression):

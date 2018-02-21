@@ -220,23 +220,26 @@ def get_predefined_classes():
     parent = None
     features = []
     features.append(AST.Method(AST.Identifier(0, "abort"), [], AST.Identifier(0, "Object"), None))
-    features.append(AST.Method(AST.Identifier(0, "type_name"), [], AST.Identifier(0, "String"), None))
     features.append(AST.Method(AST.Identifier(0, "copy"), [], AST.Identifier(0, "SELF_TYPE"), None))
+    features.append(AST.Method(AST.Identifier(0, "type_name"), [], AST.Identifier(0, "String"), None))
     to_return.append(AST.Class(name, parent, features))
 
     name = AST.Identifier(0, "IO")
     parent = AST.Identifier(0, "Object")
     features = []
-    features.append(AST.Method(AST.Identifier(0, "out_string"),
-                               [AST.Formal(AST.Identifier(0, "x"), AST.Identifier(0, "String"))],
-                               AST.Identifier(0, "SELF_TYPE"), None))
+
+    features.append(AST.Method(AST.Identifier(0, "in_int"), [], AST.Identifier(0, "Int"), None))
+
+    features.append(AST.Method(AST.Identifier(0, "in_string"), [], AST.Identifier(0, "String"), None))
+
 
     features.append(AST.Method(AST.Identifier(0, "out_int"),
                                [AST.Formal(AST.Identifier(0, "x"), AST.Identifier(0, "Int"))],
                                AST.Identifier(0, "SELF_TYPE"), None))
 
-    features.append(AST.Method(AST.Identifier(0, "in_string"), [], AST.Identifier(0, "String"), None))
-    features.append(AST.Method(AST.Identifier(0, "in_int"), [], AST.Identifier(0, "Int"), None))
+    features.append(AST.Method(AST.Identifier(0, "out_string"),
+                               [AST.Formal(AST.Identifier(0, "x"), AST.Identifier(0, "String"))],
+                               AST.Identifier(0, "SELF_TYPE"), None))
     to_return.append(AST.Class(name, parent, features))
 
     name = AST.Identifier(0, "Int")
@@ -247,11 +250,11 @@ def get_predefined_classes():
     name = AST.Identifier(0, "String")
     parent = AST.Identifier(0, "Object")
     features = []
-    features.append(AST.Method(AST.Identifier(0, "length"), [], AST.Identifier(0, "Int"), None))
-
     features.append(AST.Method(AST.Identifier(0, "concat"),
                                [AST.Formal(AST.Identifier(0, "s"), AST.Identifier(0, "String"))],
                                AST.Identifier(0, "String"), None))
+
+    features.append(AST.Method(AST.Identifier(0, "length"), [], AST.Identifier(0, "Int"), None))
 
     features.append(AST.Method(AST.Identifier(0, "substr"),
                                [AST.Formal(AST.Identifier(0, "i"), AST.Identifier(0, "Int")),
@@ -311,25 +314,69 @@ def get_class_map(ast):
             else:
                 to_return += "initializer\n"
             to_return += str(attri.name_id.id) + "\n" + str(attri.type_id.id) + "\n"
-            # TODO: finish this
             if attri.init_exp is not None:
                 to_return += str(attri.init_exp)
     return to_return
 
-def get_implementation_map(ast):
-    predefined_classes = ["Bool", "IO", "Int", "Object", "String"]
+def find_origin_class(ast, curr, prev, method):
+
+    if curr is None:
+        return prev
+    cl = find_class(ast, curr)
+    for feature in cl.features:
+        if not isinstance(feature, AST.Method):
+                continue
+        if feature.name_id == method.name_id:
+            return find_origin_class(ast, cl.parent_id, curr, method)
+    return prev
+
+def get_idents_types(ast, cl, method):
+    to_return = []
+    for feature in get_features(ast, cl):
+        if not isinstance(feature, AST.Attribute):
+            continue
+        to_return.append((feature.name_id, feature.type_id))
+    for formal in method.formal_list:
+        to_return.append((formal.name_id, formal.type_id))
+    return to_return
+
+def get_check_body_expression(exp, idents_types):
+    exp.get_type()
+
+
+def get_implementation_map(ast, predefined_classes):
+    predefined_classes_str = ["Bool", "IO", "Int", "Object", "String"]
     to_return = "implementation_map\n"
     to_return += str(len(ast) + len(predefined_classes)) + "\n"
     for cl in sorted(ast + predefined_classes, key=class_map_key):
         to_return += cl.name.id + "\n"
         methods = []
-        for feature in cl.features:
-            if isinstance(feature, AST.Method):
-                methods.append(feature)
-        methods.sort(key=features_key)
+        for feature in get_features(ast + predefined_classes, cl.features):
+            if not isinstance(feature, AST.Method):
+                continue
+            methods.append(feature)
+
         to_return += str(len(methods)) + "\n"
         for method in methods:
-            pass
+            to_return += method.name_id.id + "\n"
+            to_return += str(len(method.formals_list)) + "\n"
+            for formal in method.formals_list:
+                to_return += formal.name_id.id + "\n"
+            origin_class_id = find_origin_class(ast, cl.parent_id, cl.name_id, method)
+            # origin_class = find_class(ast, origin_class_id)
+            to_return += origin_class_id.id + "\n"
+            if origin_class_id.id in predefined_classes_str:
+                to_return += str(0) + "\n"
+                to_return += method.type_id.id + "\n"
+                to_return += "internal\n"
+                to_return += origin_class_id.id + "." + method.name_id.id + "\n"
+            else:
+                idents_types = get_idents_types(ast + predefined_classes, cl, method)
+                body_type_id, exp_name = get_check_body_expression(method.body_exp, idents_types)
+                to_return += method.body_exp.lineno + "\n"
+                to_return += body_type_id.id + "\n"
+                to_return += exp_name + "\n"
+
 
 def check_class_map(ast, predefined_classes):
 
@@ -341,7 +388,6 @@ def check_class_map(ast, predefined_classes):
             print("ERROR: " + cl.name_id.lineno +
                   ": Type-Check: redefined predefined " + cl.name_id.id)
             exit(1)
-
 
 
     can_inherit_list = ["Object", "IO"]
@@ -356,8 +402,13 @@ def check_class_map(ast, predefined_classes):
 
     # bad inherit
     for cl in ast:
-        if cl.name_id.id not in can_inherit_list:
-            print("Error: " + cl.parent_id.lineno + ": Type-Check: cannot inherit from " + cl.parent_id.id)
+        if cl.parent_id is None:
+            continue
+        if cl.name_id == cl.parent_id:
+            print("ERROR: " + cl.parent_id.lineno + ": Type-Check: cannot inherit from self" + cl.parent_id.id)
+            exit(1)
+        if cl.parent_id.id not in can_inherit_list:
+            print("ERROR: " + cl.parent_id.lineno + ": Type-Check: cannot inherit from " + cl.parent_id.id)
             exit(1)
 
     # cycle
@@ -373,7 +424,7 @@ def check_class_map(ast, predefined_classes):
             for j, feature2 in enumerate(cl.features[i+1:]):
                 if (feature1.name_id == feature2.name_id) and (i != j):
                     if isinstance(feature1, AST.Method) == isinstance(feature2.AST.Method):
-                        print("Error: " + feature2.name_id.lineno +
+                        print("ERROR: " + feature2.name_id.lineno +
                               ": Type-Check: multiple definitions of " + feature2.name_id.id)
                         exit(1)
 
@@ -388,9 +439,18 @@ def check_class_map(ast, predefined_classes):
                     if not isinstance(feature2, AST.Method):
                         continue
                     if feature1.name_id == feature2.name_id:
+                        #TODO: Fix this if failing tests
                         if feature1.formals_list != feature2.formals_list:
-                            print("ERROR: " + cl.name_id.lineno +
-                                  ": Type-Check: parameters don't match " + cl.name_id.id)
+                            if len(feature1.formals_list) == 0:
+                                print("ERROR: " + feature1.name_id.lineno +
+                                      ": changes number of formals " + feature1.name_id.id)
+                                exit(1)
+                            print("ERROR: " + feature1.formals_list[0].name_id.lineno +
+                                  ": Type-Check: parameters don't match " + feature1.formals_list[0].name_id.id)
+                            exit(1)
+                        if feature1.type_id != feature2.type_id:
+                            print("ERROR: " + feature1.type_id.lineno +
+                                  ": Type-Check: return type doesn't match " + feature1.type_id.id)
                             exit(1)
             parent_class = find_class(ast + predefined_classes, parent_class.parent_id)
 
@@ -407,9 +467,29 @@ def check_class_map(ast, predefined_classes):
                     continue
                 if feature1.name_id == feature2.name_id:
                     if feature1.formals_list != feature2.formals_list:
-                        print("Error: " + cl.name_id.lineno +
-                              ": Type-Check: parameters don't match " + cl.name_id.id)
+                        if len(feature1.formals_list) == 0:
+                            print("ERROR: " + feature1.name_id.lineno +
+                                  ": changes number of formals " + feature1.name_id.id)
+                            exit(1)
+                        print("ERROR: " + feature1.formals_list[0].name_id.lineno +
+                              ": Type-Check: parameters don't match " + feature1.formals_list[0].name_id.id)
                         exit(1)
+                    if feature1.type_id != feature2.type_id:
+                        print("ERROR: " + feature1.type_id.lineno +
+                              ": Type-Check: return type doesn't match " + feature1.type_id.id)
+                        exit(1)
+
+    # no Main
+    found_main = False
+    for cl in ast:
+        if cl.name_id.id == "Main":
+            found_main = True
+            break
+    if not found_main:
+        print("ERROR: " + str(0) +
+              ": Type-Check: cannot find class Main " + feature1.type_id.id)
+        exit(1)
+
 
     # no main in Main
     for cl in ast:
@@ -420,9 +500,21 @@ def check_class_map(ast, predefined_classes):
                     continue
                 method_list.append(feature.name_id.id)
             if "main" not in method_list:
-                print("ERROR: " + cl.name_id.lineno +
+                print("ERROR: " + str(0) +
                       ": Type-Check: no main method " + cl.name_id.id)
                 exit(1)
+
+    for cl in ast:
+        if cl.name_id.id == "Main":
+            for feature in cl.features:
+                if not isinstance(feature, AST.Method):
+                    continue
+                if feature.name_id.id == "main":
+                    if len(feature.formals_list) != 0:
+                        print("ERROR: " + str(0) +
+                              ": Type-Check: main has formals ")
+                        exit(1)
+                    break
 
     # duplicate formals
     for cl in ast:
@@ -432,15 +524,83 @@ def check_class_map(ast, predefined_classes):
             for i, formal1 in enumerate(feature.formals_list):
                 for j, formal2 in enumerate(feature.formals_list[i+1:]):
                     if formal1.name_id == formal2.name_id:
-                        print("ERROR: " + cl.name_id.lineno +
-                              ": Type-Check: duplicate formals " + cl.name_id.id)
+                        print("ERROR: " + formal2.name_id.lineno +
+                              ": Type-Check: duplicate formals " + formal2.name_id.id)
                         exit(1)
 
 
+    # attribute named self
+    for cl in ast:
+        for feature in cl.features:
+            if not isinstance(feature, AST.Attribute):
+                continue
+            if feature.name_id.id == "self":
+                print("ERROR: " + feature.name_id.lineno +
+                      ": Type-Check: attribute named self " + feature.name_id.id)
+                exit(1)
 
+    # override attribute
+    for cl in ast:
+        parent_class = find_class(ast + predefined_classes, cl.parent_id)
+        while parent_class is not None:
+            for feature1 in cl.features:
+                for feature2 in parent_class.features:
+                    if not isinstance(feature1, AST.Attribute):
+                        continue
+                    if not isinstance(feature2, AST.Attribute):
+                        continue
+                    if feature1.name_id == feature2.name_id:
+                        print("ERROR: " + feature1.name_id.lineno +
+                              ": Type-Check: override attribute " + feature1.name_id.id)
+                        exit(1)
+            parent_class = find_class(ast + predefined_classes, parent_class.parent_id)
 
+    # redefined another class
+    for i, cl1 in enumerate(ast):
+        for j, cl2 in enumerate(ast[i+1:]):
+            if cl1.name_id == cl2.name_id:
+                print("ERROR: " + cl2.name_id.lineno +
+                      ": Type-Check: redefined another class " + cl2.name_id.id)
+                exit(1)
+    # TODO: Fix this it is causing good cases to fail
+    """
+    # return an undefined type
+    defined_types = ["Bool", "IO", "Int", "Object", "String"]
+    for cl in ast:
+        defined_types.append(cl.name_id.id)
+    for cl in ast:
+        for feature in cl.features:
+            if not isinstance(feature, AST.Method):
+                continue
+            if feature.type_id.id not in defined_types:
+                print("ERROR: " + feature.type_id.lineno +
+                      ": Type-Check: returning undefined type " + feature.type_id.id)
+                exit(1)
+    """
+    # SELF_TYPE redeclared
+    for cl in ast:
+        for feature in cl.features:
+            if not isinstance(feature, AST.Attribute):
+                continue
+            if feature.name_id.id == "SELF_TYPE":
+                print("ERROR: " + feature.name_id.lineno +
+                      ": Type-Check: redefined SELF_TYPE " + feature.name_id.id)
+                exit(1)
 
-
+    # self/SELF_TYPE in formal
+    for cl in ast:
+        for feature in cl.features:
+            if not isinstance(feature, AST.Method):
+                continue
+            for formal in feature.formals_list:
+                if formal.name_id.id == "self":
+                    print("ERROR: " + formal.name_id.lineno +
+                          ": Type-Check: self in formal " + formal.name_id.id)
+                    exit(1)
+                if formal.type_id.id == "SELF_TYPE":
+                    print("ERROR: " + formal.type_id.lineno +
+                          ": Type-Check: SELF_TYPE in formal " + formal.type_id.id)
+                    exit(1)
 
 
 
