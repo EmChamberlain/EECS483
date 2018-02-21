@@ -117,23 +117,21 @@ class Formal(object):
 class Expression(object):
     lineno = None
     exp_name = "INSTANCE OF EXPRESSION"
+    exp_type = None
 
     def __init__(self, _lineno):
         self.lineno = _lineno
 
     def __str__(self):
-        return self.lineno + "\n" + self.exp_name + "\n"
+        return self.lineno + "\n" + self.exp_type + "\n" + self.exp_name + "\n"
 
-    def find_type(self, _i, idents_types):
-        for i, t in idents_types:
-            if i == _i:
+    def find_type(self, _i, types):
+        for i, t in types:
+            if i == _i.id:
                 return t
         return None
 
-    def get_type(self, idents_types):
-        return None
-
-    def get_value(self, idents_types):
+    def get_type(self, cl, M, O):
         return None
 
 
@@ -151,21 +149,10 @@ class Assign(Expression):
     def __str__(self):
         return Expression.__str__(self) + str(self.var_id) + str(self.rhs_exp)
 
-    def get_type(self, idents_types):
-        rhs_type = self.rhs_exp.get_type(idents_types)
-        var_type = self.find_type(self.var_id)
-        if var_type is None:
-            print("ERROR: " + self.lineno +
-                  ": Type-Check: assign error None")
-            exit(1)
-        if rhs_type != var_type:
-            print("ERROR: " + self.lineno +
-                  ": Type-Check: assign error " + var_type)
-            exit(1)
-        return rhs_type
+    def get_type(self, cl, M, O):
+        self.exp_type = self.rhs_exp.get_type(cl, M, O)
+        return self.exp_type
 
-    def get_value(self, idents_types):
-        return self.rhs_exp.get_value(idents_types)
 
 
 
@@ -189,11 +176,7 @@ class Dynamic_Dispatch(Expression):
             to_return += str(exp)
         return to_return
 
-    def get_type(self):
-        return None
 
-    def get_value(self):
-        return None
 
 
 class Static_Dispatch(Expression):
@@ -216,6 +199,8 @@ class Static_Dispatch(Expression):
         for exp in self.args_exp_list:
             to_return += str(exp)
         return to_return
+
+
 
 class Self_Dispatch(Expression):
     method_id = None
@@ -253,6 +238,15 @@ class If(Expression):
         to_return += str(self.else_exp)
         return to_return
 
+    def get_type(self, cl, M, O):
+        pred_bool = self.pred_exp.get_type(cl, M, O)
+        if isinstance(pred_bool, True_Exp):
+            self.exp_type = self.then_exp.get_type(cl, M, O)
+        else:
+            self.exp_type = self.else_exp.get_type(cl, M, O)
+
+        return self.exp_type
+
 
 class While(Expression):
     pred_exp = None
@@ -271,6 +265,12 @@ class While(Expression):
         to_return += str(self.body_exp)
         return to_return
 
+    def get_type(self, cl, M, O):
+        pred_type = self.pred_exp.get_type(cl, M, O)
+        body_type = self.pred_exp.get_type(cl, M, O)
+        self.exp_type = "Object"
+        return self.exp_type
+
 
 class Block(Expression):
     body_exp_list = []
@@ -288,6 +288,12 @@ class Block(Expression):
             to_return += str(exp)
         return to_return
 
+    def get_type(self, cl, M, O):
+        for exp in self.body_exp_list:
+            e_type = exp.get_type(cl, M, O)
+        self.exp_type = self.body_exp_list[-1].get_type(cl, M, O)
+        return self.exp_type
+
 
 class New(Expression):
     class_id = None
@@ -302,6 +308,10 @@ class New(Expression):
         to_return += str(self.class_id)
         return to_return
 
+    def get_type(self, cl, M, O):
+        self.exp_type = self.class_id.id
+        return self.exp_type
+
 
 class Isvoid(Expression):
     e_exp = None
@@ -315,6 +325,11 @@ class Isvoid(Expression):
         to_return = Expression.__str__(self)
         to_return += str(self.e_exp)
         return to_return
+
+    def get_type(self, cl, M, O):
+        e_type = self.e_exp.get_type()
+        self.exp_type = "Bool"
+        return self.exp_type
 
 
 class Plus(Expression):
@@ -333,6 +348,12 @@ class Plus(Expression):
         to_return += str(self.y_exp)
         return to_return
 
+    def get_type(self, cl, M, O):
+        x_type = self.x_exp.get_type(cl, M, O)
+        y_type = self.y_exp.get_type(cl, M, O)
+        self.exp_type = "Int"
+        return self.exp_type
+
 
 class Minus(Expression):
     x_exp = None
@@ -349,6 +370,12 @@ class Minus(Expression):
         to_return += str(self.x_exp)
         to_return += str(self.y_exp)
         return to_return
+
+    def get_type(self, cl, M, O):
+        x_type = self.x_exp.get_type(cl, M, O)
+        y_type = self.y_exp.get_type(cl, M, O)
+        self.exp_type = "Int"
+        return self.exp_type
 
 
 class Times(Expression):
@@ -367,6 +394,12 @@ class Times(Expression):
         to_return += str(self.y_exp)
         return to_return
 
+    def get_type(self, cl, M, O):
+        x_type = self.x_exp.get_type(cl, M, O)
+        y_type = self.y_exp.get_type(cl, M, O)
+        self.exp_type = "Int"
+        return self.exp_type
+
 
 class Divide(Expression):
     x_exp = None
@@ -383,6 +416,12 @@ class Divide(Expression):
         to_return += str(self.x_exp)
         to_return += str(self.y_exp)
         return to_return
+
+    def get_type(self, cl, M, O):
+        x_type = self.x_exp.get_type(cl, M, O)
+        y_type = self.y_exp.get_type(cl, M, O)
+        self.exp_type = "Int"
+        return self.exp_type
 
 
 class Lt(Expression):
@@ -401,6 +440,11 @@ class Lt(Expression):
         to_return += str(self.y_exp)
         return to_return
 
+    def get_type(self, cl, M, O):
+        x_type = self.x_exp.get_type(cl, M, O)
+        y_type = self.y_exp.get_type(cl, M, O)
+        self.exp_type = "Bool"
+        return self.exp_type
 
 class Le(Expression):
     x_exp = None
@@ -417,6 +461,12 @@ class Le(Expression):
         to_return += str(self.x_exp)
         to_return += str(self.y_exp)
         return to_return
+
+    def get_type(self, cl, M, O):
+        x_type = self.x_exp.get_type(cl, M, O)
+        y_type = self.y_exp.get_type(cl, M, O)
+        self.exp_type = "Bool"
+        return self.exp_type
 
 
 class Eq(Expression):
@@ -435,6 +485,12 @@ class Eq(Expression):
         to_return += str(self.y_exp)
         return to_return
 
+    def get_type(self, cl, M, O):
+        x_type = self.x_exp.get_type(cl, M, O)
+        y_type = self.y_exp.get_type(cl, M, O)
+        self.exp_type = "Bool"
+        return self.exp_type
+
 
 class Not(Expression):
     x_exp = None
@@ -449,6 +505,11 @@ class Not(Expression):
         to_return += str(self.x_exp)
         return to_return
 
+    def get_type(self, cl, M, O):
+        x_type = self.x_exp.get_type(cl, M, O)
+        self.exp_type = "Bool"
+        return self.exp_type
+
 class Negate(Expression):
     x_exp = None
 
@@ -462,6 +523,11 @@ class Negate(Expression):
         to_return += str(self.x_exp)
         return to_return
 
+    def get_type(self, cl, M, O):
+        x_type = self.x_exp.get_type(cl, M, O)
+        self.exp_type = "Int"
+        return self.exp_type
+
 class Integer(Expression):
     int_const = None
 
@@ -474,6 +540,10 @@ class Integer(Expression):
         to_return = Expression.__str__(self)
         to_return += str(self.int_const) + "\n"
         return to_return
+
+    def get_type(self, cl, M, O):
+        self.exp_type = "Int"
+        return self.exp_type
 
 
 class String(Expression):
@@ -489,6 +559,10 @@ class String(Expression):
         to_return += str(self.str_const) + "\n"
         return to_return
 
+    def get_type(self, cl, M, O):
+        self.exp_type = "String"
+        return self.exp_type
+
 
 class Identifier_Exp(Expression):
     var_id = None
@@ -503,6 +577,10 @@ class Identifier_Exp(Expression):
         to_return += str(self.var_id)
         return to_return
 
+    def get_type(self, cl, M, O):
+        self.exp_type = self.find_type(self.var_id, O)
+        return self.exp_type
+
 class True_Exp(Expression):
     def __init__(self, _lineno):
         Expression.__init__(self, _lineno)
@@ -511,6 +589,10 @@ class True_Exp(Expression):
     def __str__(self):
         to_return = Expression.__str__(self)
         return to_return
+
+    def get_type(self, cl, M, O):
+        self.exp_type = "Bool"
+        return self.exp_type
 
 class False_Exp(Expression):
     def __init__(self, _lineno):
@@ -521,23 +603,36 @@ class False_Exp(Expression):
         to_return = Expression.__str__(self)
         return to_return
 
+    def get_type(self, cl, M, O):
+        self.exp_type = "Bool"
+        return self.exp_type
 
-class Let(object):
-    lineno = None
+
+class Let(Expression):
     binding_list = []
     body_exp = None
 
     def __init__(self, _lineno, _binding_list, _body):
         self.lineno = _lineno
+        self.exp_name = "let"
         self.binding_list = _binding_list
         self.body_exp = _body
 
     def __str__(self):
-        to_return = self.lineno + "\nlet\n" + str(len(self.binding_list)) + "\n"
+        to_return = Expression.__str__(self) + str(len(self.binding_list)) + "\n"
         for binding in self.binding_list:
             to_return += str(binding)
         to_return += str(self.body_exp)
         return to_return
+
+    def get_type(self, cl, M, O):
+        new_ids = []
+        for binding in self.binding_list:
+            new_ids.append((binding.var_id.id, binding.type_id.id))
+            type = binding.value_exp.get_type(cl, M, O)
+
+        self.exp_type = self.body_exp.get_type(cl, M, O + new_ids)
+        return self.exp_type
 
 class Binding(object):
     var_id = None
@@ -561,18 +656,18 @@ class Binding(object):
         return to_return
 
 
-class Case(object):
-    lineno = None
+class Case(Expression):
     case_exp = None
     case_elem_list = []
 
     def __init__(self, _lineno, _case, _case_elem_list):
         self.lineno = _lineno
+        self.exp_name = "case"
         self.case_exp = _case
         self.case_elem_list = _case_elem_list
 
     def __str__(self):
-        to_return = self.lineno + "\ncase\n" + str(self.case_exp) + str(len(self.case_elem_list)) + "\n"
+        to_return = Expression.__str__(self) + str(self.case_exp) + str(len(self.case_elem_list)) + "\n"
         for case_elem in self.case_elem_list:
             to_return += str(case_elem)
         return to_return

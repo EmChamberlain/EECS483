@@ -288,10 +288,18 @@ def find_class(ast, id):
 
 
 def get_features(ast, cl):
+
+    if cl.name_id.id == "Object":
+        return cl.features
+
     if cl.parent_id is None:
-        return cl.features
-    if cl.name_id.id in ["Bool", "IO", "Int", "Object", "String"]:
-        return cl.features
+        object_class = None
+        for pred in ast:
+            if pred.name_id.id == "Object":
+                object_class = pred
+                break
+        return get_features(ast, object_class) + cl.features
+
 
     parent_class = find_class(ast, cl.parent_id)
     return get_features(ast, parent_class) + cl.features
@@ -321,6 +329,17 @@ def get_class_map(ast):
 def find_origin_class(ast, curr, prev, method):
 
     if curr is None:
+        object_class = None
+        for pred in predefined_classes:
+            if pred.name_id.id == "Object":
+                object_class = pred
+                break
+        for feature in object_class.features:
+            if not isinstance(feature, AST.Method):
+                continue
+            if feature.name_id == method.name_id:
+                return object_class.name_id
+
         return prev
     cl = find_class(ast, curr)
     for feature in cl.features:
@@ -330,28 +349,55 @@ def find_origin_class(ast, curr, prev, method):
             return find_origin_class(ast, cl.parent_id, curr, method)
     return prev
 
-def get_idents_types(ast, cl, method):
-    to_return = []
-    for feature in get_features(ast, cl):
-        if not isinstance(feature, AST.Attribute):
-            continue
-        to_return.append((feature.name_id, feature.type_id))
-    for formal in method.formal_list:
-        to_return.append((formal.name_id, formal.type_id))
-    return to_return
 
-def get_check_body_expression(exp, idents_types):
-    exp.get_type()
+def create_M_O(ast, predefined_classes, cl):
+    M = []
+    O = []
+    for feature in cl.features:
+        if isinstance(feature, AST.Attribute):
+            O.append((feature.name_id.id, feature.type_id.id))
+        if isinstance(feature, AST.Method):
+            M.append((feature.name_id.id, feature.type_id.id))
+    parent_class = find_class(ast, cl.parent_id)
+    while parent_class is not None:
+        for feature in parent_class.features:
+            if isinstance(feature, AST.Attribute):
+                O.append((feature.name_id.id, feature.type_id.id))
+            if isinstance(feature, AST.Method):
+                M.append((feature.name_id.id, feature.type_id.id))
+        parent_class = find_class(ast, parent_class.parent_id)
+
+    object_class = None
+    for pred in predefined_classes:
+        if pred.name_id.id == "Object":
+            object_class = pred
+            break
+    for feature in object_class.features:
+        if isinstance(feature, AST.Attribute):
+            O.append((feature.name_id.id, feature.type_id.id))
+        if isinstance(feature, AST.Method):
+            M.append((feature.name_id.id, feature.type_id.id))
+
+    return M, O
+
+def typecheck(cl, M, O):
+    for feature in cl.features:
+        if isinstance(feature, AST.Attribute):
+            type_name = feature.type_id.id
+            if feature.init_exp is not None:
+                type_name = feature.init_exp.get_type(cl.name_id, M, O)
+        else:
+            type_name = feature.body_exp.get_type(cl.name_id, M, O)
 
 
-def get_implementation_map(ast, predefined_classes):
+def get_implementation_map(ast):
     predefined_classes_str = ["Bool", "IO", "Int", "Object", "String"]
     to_return = "implementation_map\n"
-    to_return += str(len(ast) + len(predefined_classes)) + "\n"
-    for cl in sorted(ast + predefined_classes, key=class_map_key):
-        to_return += cl.name.id + "\n"
+    to_return += str(len(ast)) + "\n"
+    for cl in sorted(ast, key=class_map_key):
+        to_return += cl.name_id.id + "\n"
         methods = []
-        for feature in get_features(ast + predefined_classes, cl.features):
+        for feature in get_features(ast + predefined_classes, cl):
             if not isinstance(feature, AST.Method):
                 continue
             methods.append(feature)
@@ -371,11 +417,12 @@ def get_implementation_map(ast, predefined_classes):
                 to_return += "internal\n"
                 to_return += origin_class_id.id + "." + method.name_id.id + "\n"
             else:
-                idents_types = get_idents_types(ast + predefined_classes, cl, method)
-                body_type_id, exp_name = get_check_body_expression(method.body_exp, idents_types)
-                to_return += method.body_exp.lineno + "\n"
-                to_return += body_type_id.id + "\n"
-                to_return += exp_name + "\n"
+                if method.body_exp is None:
+                    to_return += "0\n"
+                else:
+                    to_return += str(method.body_exp)
+
+    return to_return
 
 
 def check_class_map(ast, predefined_classes):
@@ -615,7 +662,12 @@ predefined_classes = get_predefined_classes()
 check_class_map(ast, predefined_classes)
 
 
-out_string = get_class_map(ast + predefined_classes)
+for cl in ast:
+    M, O = create_M_O(ast, predefined_classes, cl)
+    typecheck(cl, M, O)
+
+# out_string = get_class_map(ast + predefined_classes)
+out_string = get_implementation_map(ast + predefined_classes)
 
 
 file_name = sys.argv[1][:-3] + "type"
