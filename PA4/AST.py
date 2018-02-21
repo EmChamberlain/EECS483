@@ -35,6 +35,9 @@ class Identifier(object):
     def __str__(self, ):
         return self.lineno + "\n" + self.id + "\n"
 
+    def __eq__(self, other):
+        return self.id == other.id
+
 class Feature(object):
     name_id = None
 
@@ -103,6 +106,9 @@ class Formal(object):
 
     def __str__(self):
         return str(self.name_id) + str(self.type_id)
+
+    def __eq__(self, other):
+        return self.type_id == other.type_id
 
 
 class Expression(object):

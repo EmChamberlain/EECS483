@@ -1,5 +1,6 @@
 import sys
 import AST
+from Toposort import toposort
 
 
 
@@ -211,6 +212,60 @@ def get_ast():
         class_list.append(get_class())
     return class_list
 
+
+def get_predefined_classes():
+    to_return = []
+
+    name = AST.Identifier(0, "Object")
+    parent = None
+    features = []
+    features.append(AST.Method(AST.Identifier(0, "abort"), [], AST.Identifier(0, "Object"), None))
+    features.append(AST.Method(AST.Identifier(0, "type_name"), [], AST.Identifier(0, "String"), None))
+    features.append(AST.Method(AST.Identifier(0, "copy"), [], AST.Identifier(0, "SELF_TYPE"), None))
+    to_return.append(AST.Class(name, parent, features))
+
+    name = AST.Identifier(0, "IO")
+    parent = AST.Identifier(0, "Object")
+    features = []
+    features.append(AST.Method(AST.Identifier(0, "out_string"),
+                               [AST.Formal(AST.Identifier(0, "x"), AST.Identifier(0, "String"))],
+                               AST.Identifier(0, "SELF_TYPE"), None))
+
+    features.append(AST.Method(AST.Identifier(0, "out_int"),
+                               [AST.Formal(AST.Identifier(0, "x"), AST.Identifier(0, "Int"))],
+                               AST.Identifier(0, "SELF_TYPE"), None))
+
+    features.append(AST.Method(AST.Identifier(0, "in_string"), [], AST.Identifier(0, "String"), None))
+    features.append(AST.Method(AST.Identifier(0, "in_int"), [], AST.Identifier(0, "Int"), None))
+    to_return.append(AST.Class(name, parent, features))
+
+    name = AST.Identifier(0, "Int")
+    parent = AST.Identifier(0, "Object")
+    features = []
+    to_return.append(AST.Class(name, parent, features))
+
+    name = AST.Identifier(0, "String")
+    parent = AST.Identifier(0, "Object")
+    features = []
+    features.append(AST.Method(AST.Identifier(0, "length"), [], AST.Identifier(0, "Int"), None))
+
+    features.append(AST.Method(AST.Identifier(0, "concat"),
+                               [AST.Formal(AST.Identifier(0, "s"), AST.Identifier(0, "String"))],
+                               AST.Identifier(0, "String"), None))
+
+    features.append(AST.Method(AST.Identifier(0, "substr"),
+                               [AST.Formal(AST.Identifier(0, "i"), AST.Identifier(0, "Int")),
+                                AST.Formal(AST.Identifier(0, "l"), AST.Identifier(0, "Int"))],
+                               AST.Identifier(0, "String"), None))
+    to_return.append(AST.Class(name, parent, features))
+
+    name = AST.Identifier(0, "Bool")
+    parent = AST.Identifier(0, "Object")
+    features = []
+    to_return.append(AST.Class(name, parent, features))
+
+    return to_return
+
 def class_map_key(cl):
     if isinstance(cl, str):
         return cl
@@ -219,21 +274,36 @@ def class_map_key(cl):
 def features_key(attri):
     return attri.name_id.id
 
+
+def find_class(ast, id):
+    if id is None:
+        return None
+    for cl in ast:
+        if cl.name_id == id:
+            return cl
+
+
+
+def get_features(ast, cl):
+    if cl.parent_id is None:
+        return cl.features
+    if cl.name_id.id in ["Bool", "IO", "Int", "Object", "String"]:
+        return cl.features
+
+    parent_class = find_class(ast, cl.parent_id)
+    return get_features(ast, parent_class) + cl.features
+
+
 def get_class_map(ast):
-    predefined_classes = ["Bool", "IO", "Int", "Object", "String"]
     to_return = "class_map\n"
-    to_return += str(len(ast) + len(predefined_classes)) + "\n"
-    for cl in sorted(ast + predefined_classes, key=class_map_key):
-        if cl in predefined_classes:
-            to_return += cl + "\n"
-            to_return += str(0) + "\n"
-            continue
+    to_return += str(len(ast)) + "\n"
+    for cl in sorted(ast, key=class_map_key):
         to_return += cl.name_id.id + "\n"
         attributes = []
-        for feature in cl.features:
+        features = get_features(ast, cl)
+        for feature in features:
             if isinstance(feature, AST.Attribute):
                 attributes.append(feature)
-        attributes.sort(key=features_key)
         to_return += str(len(attributes)) + "\n"
         for attri in attributes:
             if attri.init_exp is None:
@@ -255,11 +325,124 @@ def get_implementation_map(ast):
         methods = []
         for feature in cl.features:
             if isinstance(feature, AST.Method):
-                methods.append()
+                methods.append(feature)
         methods.sort(key=features_key)
         to_return += str(len(methods)) + "\n"
         for method in methods:
             pass
+
+def check_class_map(ast, predefined_classes):
+
+    predefined_names = ["Bool", "IO", "Int", "Object", "String"]
+
+    # redefined predefined
+    for cl in ast:
+        if cl.name_id.id in predefined_names:
+            print("ERROR: " + cl.name_id.lineno +
+                  ": Type-Check: redefined predefined " + cl.name_id.id)
+            exit(1)
+
+
+
+    can_inherit_list = ["Object", "IO"]
+    parent_edges = []
+
+    for cl in ast:
+        can_inherit_list.append(cl.name_id.id)
+        if cl.parent_id is None:
+            parent_edges.append((cl.name_id.id, "Object"))
+            continue
+        parent_edges.append((cl.name_id.id, cl.parent_id.id))
+
+    # bad inherit
+    for cl in ast:
+        if cl.name_id.id not in can_inherit_list:
+            print("Error: " + cl.parent_id.lineno + ": Type-Check: cannot inherit from " + cl.parent_id.id)
+            exit(1)
+
+    # cycle
+    topo, valid = toposort(parent_edges)
+    if not valid:
+        print("ERROR: 0: Type-Check: Cycle")
+        exit(1)
+
+
+    # multiple feature definitions
+    for cl in ast:
+        for i, feature1 in enumerate(cl.features):
+            for j, feature2 in enumerate(cl.features[i+1:]):
+                if (feature1.name_id == feature2.name_id) and (i != j):
+                    if isinstance(feature1, AST.Method) == isinstance(feature2.AST.Method):
+                        print("Error: " + feature2.name_id.lineno +
+                              ": Type-Check: multiple definitions of " + feature2.name_id.id)
+                        exit(1)
+
+    # redefining parameters of parent
+    for cl in ast:
+        parent_class = find_class(ast + predefined_classes, cl.parent_id)
+        while parent_class is not None:
+            for feature1 in cl.features:
+                for feature2 in parent_class.features:
+                    if not isinstance(feature1, AST.Method):
+                        continue
+                    if not isinstance(feature2, AST.Method):
+                        continue
+                    if feature1.name_id == feature2.name_id:
+                        if feature1.formals_list != feature2.formals_list:
+                            print("ERROR: " + cl.name_id.lineno +
+                                  ": Type-Check: parameters don't match " + cl.name_id.id)
+                            exit(1)
+            parent_class = find_class(ast + predefined_classes, parent_class.parent_id)
+
+        object_class = None
+        for pred in predefined_classes:
+            if pred.name_id.id == "Object":
+                object_class = pred
+                break
+        for feature1 in cl.features:
+            for feature2 in object_class.features:
+                if not isinstance(feature1, AST.Method):
+                    continue
+                if not isinstance(feature2, AST.Method):
+                    continue
+                if feature1.name_id == feature2.name_id:
+                    if feature1.formals_list != feature2.formals_list:
+                        print("Error: " + cl.name_id.lineno +
+                              ": Type-Check: parameters don't match " + cl.name_id.id)
+                        exit(1)
+
+    # no main in Main
+    for cl in ast:
+        if cl.name_id.id == "Main":
+            method_list = []
+            for feature in cl.features:
+                if not isinstance(feature, AST.Method):
+                    continue
+                method_list.append(feature.name_id.id)
+            if "main" not in method_list:
+                print("ERROR: " + cl.name_id.lineno +
+                      ": Type-Check: no main method " + cl.name_id.id)
+                exit(1)
+
+    # duplicate formals
+    for cl in ast:
+        for feature in cl.features:
+            if not isinstance(feature, AST.Method):
+                continue
+            for i, formal1 in enumerate(feature.formals_list):
+                for j, formal2 in enumerate(feature.formals_list[i+1:]):
+                    if formal1.name_id == formal2.name_id:
+                        print("ERROR: " + cl.name_id.lineno +
+                              ": Type-Check: duplicate formals " + cl.name_id.id)
+                        exit(1)
+
+
+
+
+
+
+
+
 
 
 
@@ -267,8 +450,12 @@ with open(sys.argv[1], 'r') as f:
     in_lines = [l.rstrip('\r\n') for l in f.readlines()]
 
 ast = get_ast()
+predefined_classes = get_predefined_classes()
 
-out_string = get_class_map(ast)
+check_class_map(ast, predefined_classes)
+
+
+out_string = get_class_map(ast + predefined_classes)
 
 
 file_name = sys.argv[1][:-3] + "type"
