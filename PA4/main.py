@@ -290,6 +290,47 @@ def find_class(ast, id):
 def get_features(ast, cl):
 
     if cl.name_id.id == "Object":
+        for pred in ast:
+            if pred.name_id.id == "Object":
+                return pred.features
+
+    parent_class = None
+    if cl.parent_id is None:
+        for pred in ast:
+            if pred.name_id.id == "Object":
+                parent_class = pred
+                break
+    else:
+        parent_class = find_class(ast, cl.parent_id)
+    parent_features = get_features(ast, parent_class)
+    unique_features = []
+    used_features = []
+    for featurep in parent_features:
+        in_list = False
+        for featurec in cl.features:
+            if featurep.name_id.id == featurec.name_id.id:
+                unique_features.append(featurec)
+                used_features.append(featurec)
+                in_list = True
+                break
+        if not in_list:
+            unique_features.append(featurep)
+    remaining_features = []
+    for feature in cl.features:
+        used = False
+        for used_feature in used_features:
+            if feature.name_id == used_feature.name_id:
+                used = True
+                break
+        if not used:
+            remaining_features.append(feature)
+
+    return unique_features + remaining_features
+
+"""
+def get_features(ast, cl):
+
+    if cl.name_id.id == "Object":
         return cl.features
 
     if cl.parent_id is None:
@@ -298,12 +339,33 @@ def get_features(ast, cl):
             if pred.name_id.id == "Object":
                 object_class = pred
                 break
-        return get_features(ast, object_class) + cl.features
-
+        parent_features = get_features(ast, object_class)
+        unique_features = []
+        for featurep in parent_features:
+            in_list = False
+            for featurec in cl.features:
+                if featurep.name_id.id == featurec.name_id.id:
+                    unique_features.append(featurec)
+                    in_list = True
+                    break
+            if not in_list:
+                unique_features.append(featurep)
+        return unique_features
 
     parent_class = find_class(ast, cl.parent_id)
-    return get_features(ast, parent_class) + cl.features
-
+    parent_features = get_features(ast, parent_class)
+    unique_features = []
+    for featurep in parent_features:
+        in_list = False
+        for featurec in cl.features:
+            if featurep.name_id.id == featurec.name_id.id:
+                unique_features.append(featurec)
+                in_list = True
+                break
+        if not in_list:
+            unique_features.append(featurep)
+    return unique_features
+"""
 
 def get_class_map(ast):
     to_return = "class_map\n"
@@ -326,46 +388,41 @@ def get_class_map(ast):
                 to_return += str(attri.init_exp)
     return to_return
 
-def find_origin_class(ast, curr, prev, method):
+def find_origin_class(ast, curr, method):
 
     if curr is None:
         object_class = None
-        for pred in predefined_classes:
+        for pred in ast:
             if pred.name_id.id == "Object":
                 object_class = pred
                 break
-        for feature in object_class.features:
-            if not isinstance(feature, AST.Method):
-                continue
-            if feature.name_id == method.name_id:
-                return object_class.name_id
+        return object_class.name_id
 
-        return prev
     cl = find_class(ast, curr)
     for feature in cl.features:
         if not isinstance(feature, AST.Method):
                 continue
         if feature.name_id == method.name_id:
-            return find_origin_class(ast, cl.parent_id, curr, method)
-    return prev
+            return cl.name_id
+    return find_origin_class(ast, cl.parent_id, method)
 
 
 def create_M_O(ast, predefined_classes, cl):
-    M = []
     O = []
     for feature in cl.features:
         if isinstance(feature, AST.Attribute):
             O.append((feature.name_id.id, feature.type_id.id))
-        if isinstance(feature, AST.Method):
-            M.append((feature.name_id.id, feature.type_id.id))
-    parent_class = find_class(ast, cl.parent_id)
+
+
+
+
+    parent_class = find_class(ast + predefined_classes, cl.parent_id)
     while parent_class is not None:
         for feature in parent_class.features:
             if isinstance(feature, AST.Attribute):
                 O.append((feature.name_id.id, feature.type_id.id))
-            if isinstance(feature, AST.Method):
-                M.append((feature.name_id.id, feature.type_id.id))
-        parent_class = find_class(ast, parent_class.parent_id)
+
+        parent_class = find_class(ast + predefined_classes, parent_class.parent_id)
 
     object_class = None
     for pred in predefined_classes:
@@ -375,19 +432,28 @@ def create_M_O(ast, predefined_classes, cl):
     for feature in object_class.features:
         if isinstance(feature, AST.Attribute):
             O.append((feature.name_id.id, feature.type_id.id))
-        if isinstance(feature, AST.Method):
-            M.append((feature.name_id.id, feature.type_id.id))
+
+
+    M = []
+    for pred in (ast + predefined_classes):
+        for feature in pred.features:
+            if isinstance(feature, AST.Method):
+                M.append((feature.name_id.id, feature.type_id.id))
+
 
     return M, O
 
-def typecheck(cl, M, O):
+def typecheck(cl, M, O, ast):
     for feature in cl.features:
         if isinstance(feature, AST.Attribute):
             type_name = feature.type_id.id
             if feature.init_exp is not None:
-                type_name = feature.init_exp.get_type(cl.name_id, M, O)
-        else:
-            type_name = feature.body_exp.get_type(cl.name_id, M, O)
+                type_name = feature.init_exp.get_type(cl.name_id, M, O, ast)
+        else: # its a method
+            formals_ids = []
+            for formal in feature.formals_list:
+                formals_ids.append((formal.name_id.id, formal.type_id.id))
+            type_name = feature.body_exp.get_type(cl.name_id, M, O + formals_ids, ast)
 
 
 def get_implementation_map(ast):
@@ -397,7 +463,8 @@ def get_implementation_map(ast):
     for cl in sorted(ast, key=class_map_key):
         to_return += cl.name_id.id + "\n"
         methods = []
-        for feature in get_features(ast + predefined_classes, cl):
+        all_features = get_features(ast + predefined_classes, cl)
+        for feature in all_features:
             if not isinstance(feature, AST.Method):
                 continue
             methods.append(feature)
@@ -408,7 +475,7 @@ def get_implementation_map(ast):
             to_return += str(len(method.formals_list)) + "\n"
             for formal in method.formals_list:
                 to_return += formal.name_id.id + "\n"
-            origin_class_id = find_origin_class(ast, cl.parent_id, cl.name_id, method)
+            origin_class_id = find_origin_class(ast + predefined_classes, cl.name_id, method)
             # origin_class = find_class(ast, origin_class_id)
             to_return += origin_class_id.id + "\n"
             if origin_class_id.id in predefined_classes_str:
@@ -649,8 +716,25 @@ def check_class_map(ast, predefined_classes):
                           ": Type-Check: SELF_TYPE in formal " + formal.type_id.id)
                     exit(1)
 
+def get_parent_map(ast):
+    to_return = "parent_map\n"
+    to_return += str(len(ast) - 1) + "\n"
+    for cl in sorted(ast, key=class_map_key):
+        if cl.name_id.id == "Object":
+            continue
+        to_return += cl.name_id.id + "\n"
+        if cl.parent_id is None:
+            to_return += "Object\n"
+        else:
+            to_return += cl.parent_id.id + "\n"
+    return to_return
 
+def get_annotated_ast(ast):
+    to_return = str(len(ast)) + "\n"
+    for cl in ast:
+        to_return += str(cl)
 
+    return to_return
 
 
 with open(sys.argv[1], 'r') as f:
@@ -664,10 +748,12 @@ check_class_map(ast, predefined_classes)
 
 for cl in ast:
     M, O = create_M_O(ast, predefined_classes, cl)
-    typecheck(cl, M, O)
+    typecheck(cl, M, O, ast + predefined_classes)
 
-# out_string = get_class_map(ast + predefined_classes)
-out_string = get_implementation_map(ast + predefined_classes)
+out_string = get_class_map(ast + predefined_classes)
+out_string += get_implementation_map(ast + predefined_classes)
+out_string += get_parent_map(ast + predefined_classes)
+out_string += get_annotated_ast(ast)
 
 
 file_name = sys.argv[1][:-3] + "type"

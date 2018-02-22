@@ -123,15 +123,88 @@ class Expression(object):
         self.lineno = _lineno
 
     def __str__(self):
-        return self.lineno + "\n" + self.exp_type + "\n" + self.exp_name + "\n"
+        return self.lineno + "\n" + str(self.exp_type) + "\n" + self.exp_name + "\n"
 
-    def find_type(self, _i, types):
+    def find_type(self, _i, types, cl):
+        if _i.id == "self":
+            return "SELF_TYPE"
         for i, t in types:
             if i == _i.id:
                 return t
         return None
 
-    def get_type(self, cl, M, O):
+    def is_parent_of(self, parent_id, cl_id, ast, cl):
+
+
+        if parent_id is None:
+            return True
+        if cl_id is None:
+            return False
+
+        if parent_id.id == "SELF_TYPE":
+            parent_id = cl
+        if cl_id.id == "SELF_TYPE":
+            cl_id = cl
+
+        if cl_id == parent_id:
+            return True
+
+        curr_class = None
+        for cl in ast:
+            if cl.name_id == cl_id:
+                curr_class = cl
+                break
+        return self.is_parent_of(parent_id, curr_class.parent_id, ast, cl)
+
+    def mutual_parent(self, cl1_id, cl2_id, ast, cl):
+
+        if cl1_id is None or cl2_id is None:
+            for cl in ast:
+                if cl.name_id == "Object":
+                    return cl.name_id
+
+        if cl1_id.id == "SELF_TYPE":
+            cl1_id = cl
+        if cl2_id.id == "SELF_TYPE":
+            cl2_id = cl
+
+        if self.is_parent_of(cl1_id, cl2_id, ast, cl):
+            return cl1_id
+        cl1_class = None
+        for cl in ast:
+            if cl.name_id == cl1_id:
+                cl1_class = cl
+                break
+        return self.mutual_parent(cl1_class.parent_id, cl2_id, ast, cl)
+
+    def find_class(self, ast, id):
+        if id is None:
+            return None
+        for cl in ast:
+            if cl.name_id == id:
+                return cl
+
+    def find_origin_class(self, ast, curr, method_id):
+
+        if curr is None:
+            object_class = None
+            for pred in ast:
+                if pred.name_id.id == "Object":
+                    object_class = pred
+                    break
+            return object_class.name_id
+
+        cl = self.find_class(ast, curr)
+        for feature in cl.features:
+            if not isinstance(feature, Method):
+                continue
+            if feature.name_id == method_id:
+                return cl.name_id
+        return self.find_origin_class(ast, cl.parent_id, method_id)
+
+
+
+    def get_type(self, cl, M, O, ast):
         return None
 
 
@@ -149,8 +222,14 @@ class Assign(Expression):
     def __str__(self):
         return Expression.__str__(self) + str(self.var_id) + str(self.rhs_exp)
 
-    def get_type(self, cl, M, O):
-        self.exp_type = self.rhs_exp.get_type(cl, M, O)
+    def get_type(self, cl, M, O, ast):
+        var_type = self.find_type(self.var_id, O, cl)
+        rhs_type = self.rhs_exp.get_type(cl, M, O, ast)
+        if not self.is_parent_of(Identifier(0, var_type), Identifier(0, rhs_type), ast, cl):
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: assign no conform " + self.var_id.id)
+            exit(1)
+        self.exp_type = rhs_type
         return self.exp_type
 
 
@@ -176,6 +255,32 @@ class Dynamic_Dispatch(Expression):
             to_return += str(exp)
         return to_return
 
+    def get_type(self, cl, M, O, ast):
+        lhs_type = self.e_exp.get_type(cl, M, O, ast)
+        if lhs_type == "SELF_TYPE":
+            lhs_type = cl.id
+
+        formals = []
+        original = self.find_class(ast, self.find_origin_class(ast, Identifier(0, lhs_type), self.method_id))
+        for feature in original.features:
+            if not isinstance(feature, Method):
+                continue
+            if feature.name_id == self.method_id:
+                formals += feature.formals_list
+                self.exp_type = feature.type_id.id
+                break
+
+        for i, exp in enumerate(self.args_exp_list):
+            type = exp.get_type(cl, M, O, ast)
+
+            exp_type_id = Identifier(0, type)
+            if not self.is_parent_of(formals[i].type_id, exp_type_id, ast, cl):
+                print("ERROR: " + self.lineno +
+                      ": Type-Check: does not match formals ")
+                exit(1)
+
+
+        return self.exp_type
 
 
 
@@ -200,6 +305,31 @@ class Static_Dispatch(Expression):
             to_return += str(exp)
         return to_return
 
+    def get_type(self, cl, M, O, ast):
+        lhs_type = self.e_exp.get_type(cl, M, O, ast)
+        if lhs_type == "SELF_TYPE":
+            lhs_type = cl.id
+        lhs_type = self.type_id.id
+        formals = []
+        original = self.find_class(ast, self.find_origin_class(ast, Identifier(0, lhs_type), self.method_id))
+        for feature in original.features:
+            if not isinstance(feature, Method):
+                continue
+            if feature.name_id == self.method_id:
+                formals += feature.formals_list
+                self.exp_type = feature.type_id.id
+                break
+
+        for i, exp in enumerate(self.args_exp_list):
+            type = exp.get_type(cl, M, O, ast)
+
+            exp_type_id = Identifier(0, type)
+            if not self.is_parent_of(formals[i].type_id, exp_type_id, ast, cl):
+                print("ERROR: " + self.lineno +
+                      ": Type-Check: does not match formals ")
+                exit(1)
+
+        return self.exp_type
 
 
 class Self_Dispatch(Expression):
@@ -218,6 +348,31 @@ class Self_Dispatch(Expression):
         for exp in self.args_exp_list:
             to_return += str(exp)
         return to_return
+
+    def get_type(self, cl, M, O, ast):
+
+        lhs_type = cl.id
+
+        formals = []
+        original = self.find_class(ast, self.find_origin_class(ast, Identifier(0, lhs_type), self.method_id))
+        for feature in original.features:
+            if not isinstance(feature, Method):
+                continue
+            if feature.name_id == self.method_id:
+                formals += feature.formals_list
+                self.exp_type = feature.type_id.id
+                break
+
+        for i, exp in enumerate(self.args_exp_list):
+            type = exp.get_type(cl, M, O, ast)
+
+            exp_type_id = Identifier(0, type)
+            if not self.is_parent_of(formals[i].type_id, exp_type_id, ast, cl):
+                print("ERROR: " + self.lineno +
+                      ": Type-Check: does not match formals ")
+                exit(1)
+
+        return self.exp_type
 
 class If(Expression):
     pred_exp = None
@@ -238,12 +393,15 @@ class If(Expression):
         to_return += str(self.else_exp)
         return to_return
 
-    def get_type(self, cl, M, O):
-        pred_bool = self.pred_exp.get_type(cl, M, O)
-        if isinstance(pred_bool, True_Exp):
-            self.exp_type = self.then_exp.get_type(cl, M, O)
-        else:
-            self.exp_type = self.else_exp.get_type(cl, M, O)
+    def get_type(self, cl, M, O, ast):
+        pred_type = self.pred_exp.get_type(cl, M, O, ast)
+        then_type = self.then_exp.get_type(cl, M, O, ast)
+        else_type = self.else_exp.get_type(cl, M, O, ast)
+        if pred_type != "Bool":
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: predicate not of type Bool ")
+            exit(1)
+        self.exp_type = self.mutual_parent(Identifier(0, then_type), Identifier(0, else_type), ast, cl).id
 
         return self.exp_type
 
@@ -265,9 +423,15 @@ class While(Expression):
         to_return += str(self.body_exp)
         return to_return
 
-    def get_type(self, cl, M, O):
-        pred_type = self.pred_exp.get_type(cl, M, O)
-        body_type = self.pred_exp.get_type(cl, M, O)
+    def get_type(self, cl, M, O, ast):
+        pred_type = self.pred_exp.get_type(cl, M, O, ast)
+        body_type = self.body_exp.get_type(cl, M, O, ast)
+
+        if pred_type != "Bool":
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: predicate not of type Bool ")
+            exit(1)
+
         self.exp_type = "Object"
         return self.exp_type
 
@@ -288,10 +452,10 @@ class Block(Expression):
             to_return += str(exp)
         return to_return
 
-    def get_type(self, cl, M, O):
+    def get_type(self, cl, M, O, ast):
         for exp in self.body_exp_list:
-            e_type = exp.get_type(cl, M, O)
-        self.exp_type = self.body_exp_list[-1].get_type(cl, M, O)
+            e_type = exp.get_type(cl, M, O, ast)
+        self.exp_type = self.body_exp_list[-1].get_type(cl, M, O, ast)
         return self.exp_type
 
 
@@ -308,7 +472,7 @@ class New(Expression):
         to_return += str(self.class_id)
         return to_return
 
-    def get_type(self, cl, M, O):
+    def get_type(self, cl, M, O, ast):
         self.exp_type = self.class_id.id
         return self.exp_type
 
@@ -326,7 +490,7 @@ class Isvoid(Expression):
         to_return += str(self.e_exp)
         return to_return
 
-    def get_type(self, cl, M, O):
+    def get_type(self, cl, M, O, ast):
         e_type = self.e_exp.get_type()
         self.exp_type = "Bool"
         return self.exp_type
@@ -348,9 +512,20 @@ class Plus(Expression):
         to_return += str(self.y_exp)
         return to_return
 
-    def get_type(self, cl, M, O):
-        x_type = self.x_exp.get_type(cl, M, O)
-        y_type = self.y_exp.get_type(cl, M, O)
+    def get_type(self, cl, M, O, ast):
+        x_type = self.x_exp.get_type(cl, M, O, ast)
+        y_type = self.y_exp.get_type(cl, M, O, ast)
+
+        if x_type != "Int":
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: lhs not Int ")
+            exit(1)
+        if y_type != "Int":
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: rhs not Int ")
+            exit(1)
+
+
         self.exp_type = "Int"
         return self.exp_type
 
@@ -371,9 +546,19 @@ class Minus(Expression):
         to_return += str(self.y_exp)
         return to_return
 
-    def get_type(self, cl, M, O):
-        x_type = self.x_exp.get_type(cl, M, O)
-        y_type = self.y_exp.get_type(cl, M, O)
+    def get_type(self, cl, M, O, ast):
+        x_type = self.x_exp.get_type(cl, M, O, ast)
+        y_type = self.y_exp.get_type(cl, M, O, ast)
+
+        if x_type != "Int":
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: lhs not Int ")
+            exit(1)
+        if y_type != "Int":
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: rhs not Int ")
+            exit(1)
+
         self.exp_type = "Int"
         return self.exp_type
 
@@ -394,9 +579,20 @@ class Times(Expression):
         to_return += str(self.y_exp)
         return to_return
 
-    def get_type(self, cl, M, O):
-        x_type = self.x_exp.get_type(cl, M, O)
-        y_type = self.y_exp.get_type(cl, M, O)
+    def get_type(self, cl, M, O, ast):
+        x_type = self.x_exp.get_type(cl, M, O, ast)
+        y_type = self.y_exp.get_type(cl, M, O, ast)
+
+
+        if x_type != "Int":
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: lhs not Int ")
+            exit(1)
+        if y_type != "Int":
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: rhs not Int ")
+            exit(1)
+
         self.exp_type = "Int"
         return self.exp_type
 
@@ -417,9 +613,20 @@ class Divide(Expression):
         to_return += str(self.y_exp)
         return to_return
 
-    def get_type(self, cl, M, O):
-        x_type = self.x_exp.get_type(cl, M, O)
-        y_type = self.y_exp.get_type(cl, M, O)
+    def get_type(self, cl, M, O, ast):
+        x_type = self.x_exp.get_type(cl, M, O, ast)
+        y_type = self.y_exp.get_type(cl, M, O, ast)
+
+        if x_type != "Int":
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: lhs not Int ")
+            exit(1)
+        if y_type != "Int":
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: rhs not Int ")
+            exit(1)
+
+
         self.exp_type = "Int"
         return self.exp_type
 
@@ -440,9 +647,22 @@ class Lt(Expression):
         to_return += str(self.y_exp)
         return to_return
 
-    def get_type(self, cl, M, O):
-        x_type = self.x_exp.get_type(cl, M, O)
-        y_type = self.y_exp.get_type(cl, M, O)
+    def get_type(self, cl, M, O, ast):
+        x_type = self.x_exp.get_type(cl, M, O, ast)
+        y_type = self.y_exp.get_type(cl, M, O, ast)
+
+        allowed = ["Int", "String", "Bool"]
+
+        if x_type in allowed and x_type != y_type:
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: only allowed to compare primitives to same class ")
+            exit(1)
+        if y_type in allowed and x_type != y_type:
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: only allowed to compare primitives to same class ")
+            exit(1)
+
+
         self.exp_type = "Bool"
         return self.exp_type
 
@@ -462,10 +682,22 @@ class Le(Expression):
         to_return += str(self.y_exp)
         return to_return
 
-    def get_type(self, cl, M, O):
-        x_type = self.x_exp.get_type(cl, M, O)
-        y_type = self.y_exp.get_type(cl, M, O)
+    def get_type(self, cl, M, O, ast):
+        x_type = self.x_exp.get_type(cl, M, O, ast)
+        y_type = self.y_exp.get_type(cl, M, O, ast)
         self.exp_type = "Bool"
+
+        allowed = ["Int", "String", "Bool"]
+
+        if x_type in allowed and x_type != y_type:
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: only allowed to compare primitives to same class ")
+            exit(1)
+        if y_type in allowed and x_type != y_type:
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: only allowed to compare primitives to same class ")
+            exit(1)
+
         return self.exp_type
 
 
@@ -485,9 +717,21 @@ class Eq(Expression):
         to_return += str(self.y_exp)
         return to_return
 
-    def get_type(self, cl, M, O):
-        x_type = self.x_exp.get_type(cl, M, O)
-        y_type = self.y_exp.get_type(cl, M, O)
+    def get_type(self, cl, M, O, ast):
+        x_type = self.x_exp.get_type(cl, M, O, ast)
+        y_type = self.y_exp.get_type(cl, M, O, ast)
+
+        allowed = ["Int", "String", "Bool"]
+
+        if x_type in allowed and x_type != y_type:
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: only allowed to compare primitives to same class ")
+            exit(1)
+        if y_type in allowed and x_type != y_type:
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: only allowed to compare primitives to same class ")
+            exit(1)
+
         self.exp_type = "Bool"
         return self.exp_type
 
@@ -505,8 +749,14 @@ class Not(Expression):
         to_return += str(self.x_exp)
         return to_return
 
-    def get_type(self, cl, M, O):
-        x_type = self.x_exp.get_type(cl, M, O)
+    def get_type(self, cl, M, O, ast):
+        x_type = self.x_exp.get_type(cl, M, O, ast)
+
+        if x_type != "Bool":
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: can only not Bool ")
+            exit(1)
+
         self.exp_type = "Bool"
         return self.exp_type
 
@@ -523,8 +773,14 @@ class Negate(Expression):
         to_return += str(self.x_exp)
         return to_return
 
-    def get_type(self, cl, M, O):
-        x_type = self.x_exp.get_type(cl, M, O)
+    def get_type(self, cl, M, O, ast):
+        x_type = self.x_exp.get_type(cl, M, O, ast)
+
+        if x_type != "Int":
+            print("ERROR: " + self.lineno +
+                  ": Type-Check: can only negate Int ")
+            exit(1)
+
         self.exp_type = "Int"
         return self.exp_type
 
@@ -541,7 +797,7 @@ class Integer(Expression):
         to_return += str(self.int_const) + "\n"
         return to_return
 
-    def get_type(self, cl, M, O):
+    def get_type(self, cl, M, O, ast):
         self.exp_type = "Int"
         return self.exp_type
 
@@ -559,7 +815,7 @@ class String(Expression):
         to_return += str(self.str_const) + "\n"
         return to_return
 
-    def get_type(self, cl, M, O):
+    def get_type(self, cl, M, O, ast):
         self.exp_type = "String"
         return self.exp_type
 
@@ -577,8 +833,8 @@ class Identifier_Exp(Expression):
         to_return += str(self.var_id)
         return to_return
 
-    def get_type(self, cl, M, O):
-        self.exp_type = self.find_type(self.var_id, O)
+    def get_type(self, cl, M, O, ast):
+        self.exp_type = self.find_type(self.var_id, O, cl)
         return self.exp_type
 
 class True_Exp(Expression):
@@ -590,7 +846,7 @@ class True_Exp(Expression):
         to_return = Expression.__str__(self)
         return to_return
 
-    def get_type(self, cl, M, O):
+    def get_type(self, cl, M, O, ast):
         self.exp_type = "Bool"
         return self.exp_type
 
@@ -603,7 +859,7 @@ class False_Exp(Expression):
         to_return = Expression.__str__(self)
         return to_return
 
-    def get_type(self, cl, M, O):
+    def get_type(self, cl, M, O, ast):
         self.exp_type = "Bool"
         return self.exp_type
 
@@ -613,7 +869,7 @@ class Let(Expression):
     body_exp = None
 
     def __init__(self, _lineno, _binding_list, _body):
-        self.lineno = _lineno
+        Expression.__init__(self, _lineno)
         self.exp_name = "let"
         self.binding_list = _binding_list
         self.body_exp = _body
@@ -625,13 +881,19 @@ class Let(Expression):
         to_return += str(self.body_exp)
         return to_return
 
-    def get_type(self, cl, M, O):
-        new_ids = []
+    def get_type(self, cl, M, O, ast):
+        additional_O = []
         for binding in self.binding_list:
-            new_ids.append((binding.var_id.id, binding.type_id.id))
-            type = binding.value_exp.get_type(cl, M, O)
+            additional_O.append((binding.var_id.id, binding.type_id.id))
+            type = binding.value_exp.get_type(cl, M, O, ast)
 
-        self.exp_type = self.body_exp.get_type(cl, M, O + new_ids)
+            if type is not None and not self.is_parent_of(binding.type_id, Identifier(0, type), ast, cl):
+                print("ERROR: " + self.lineno +
+                      ": Type-Check: types don't match in let ")
+                exit(1)
+
+
+        self.exp_type = self.body_exp.get_type(cl, M,additional_O + O , ast)
         return self.exp_type
 
 class Binding(object):
@@ -661,7 +923,7 @@ class Case(Expression):
     case_elem_list = []
 
     def __init__(self, _lineno, _case, _case_elem_list):
-        self.lineno = _lineno
+        Expression.__init__(self, _lineno)
         self.exp_name = "case"
         self.case_exp = _case
         self.case_elem_list = _case_elem_list
@@ -671,6 +933,24 @@ class Case(Expression):
         for case_elem in self.case_elem_list:
             to_return += str(case_elem)
         return to_return
+
+    def get_type(self, cl, M, O, ast):
+        exp_type = self.case_exp.get_type(cl, M, O, ast)
+        for elem in self.case_elem_list:
+            elem_type = elem.body_exp.get_type(cl, M, O, ast)
+
+            if elem_type is not None and not self.is_parent_of(elem.type_id, Identifier(0, elem_type), ast, cl):
+                print("ERROR: " + self.lineno +
+                      ": Type-Check: types don't match in case ")
+                exit(1)
+
+            if elem.type_id.id == exp_type:
+                self.exp_type = elem_type
+
+        if self.exp_type is None:
+            self.exp_type = "Object"
+
+        return self.exp_type
 
 
 class Case_Elem(object):
