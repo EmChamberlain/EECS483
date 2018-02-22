@@ -7,6 +7,7 @@ from Toposort import toposort
 
 in_lines = []
 
+# all the read functions
 def get_line():
     global in_lines
     return in_lines.pop(0)
@@ -212,7 +213,7 @@ def get_ast():
         class_list.append(get_class())
     return class_list
 
-
+# this generates the AST nodes for the predefined classes
 def get_predefined_classes():
     to_return = []
 
@@ -269,6 +270,7 @@ def get_predefined_classes():
 
     return to_return
 
+# these are keys for sorting lists alphabetically
 def class_map_key(cl):
     if isinstance(cl, str):
         return cl
@@ -277,7 +279,7 @@ def class_map_key(cl):
 def features_key(attri):
     return attri.name_id.id
 
-
+# returns class based with id
 def find_class(ast, id):
     if id is None:
         return None
@@ -286,7 +288,7 @@ def find_class(ast, id):
             return cl
 
 
-
+# recursively gets all features for a particular class (include inherited)
 def get_features(ast, cl):
 
     if cl.name_id.id == "Object":
@@ -308,7 +310,7 @@ def get_features(ast, cl):
     for featurep in parent_features:
         in_list = False
         for featurec in cl.features:
-            if featurep.name_id.id == featurec.name_id.id:
+            if featurep.name_id.id == featurec.name_id.id and (isinstance(featurep, AST.Method) == isinstance(featurec, AST.Method)):
                 unique_features.append(featurec)
                 used_features.append(featurec)
                 in_list = True
@@ -319,7 +321,7 @@ def get_features(ast, cl):
     for feature in cl.features:
         used = False
         for used_feature in used_features:
-            if feature.name_id == used_feature.name_id:
+            if feature.name_id == used_feature.name_id and (isinstance(feature, AST.Method) == isinstance(used_feature, AST.Method)):
                 used = True
                 break
         if not used:
@@ -367,6 +369,7 @@ def get_features(ast, cl):
     return unique_features
 """
 
+# returns a string containing the class_map
 def get_class_map(ast):
     to_return = "class_map\n"
     to_return += str(len(ast)) + "\n"
@@ -388,6 +391,7 @@ def get_class_map(ast):
                 to_return += str(attri.init_exp)
     return to_return
 
+# returns the first class up the parent chain that has a method with id method
 def find_origin_class(ast, curr, method):
 
     if curr is None:
@@ -406,7 +410,7 @@ def find_origin_class(ast, curr, method):
             return cl.name_id
     return find_origin_class(ast, cl.parent_id, method)
 
-
+# creates the sets M and O for typechecking
 def create_M_O(ast, predefined_classes, cl):
     O = []
     for feature in cl.features:
@@ -443,6 +447,7 @@ def create_M_O(ast, predefined_classes, cl):
 
     return M, O
 
+# boilerplate for typechecking every class
 def typecheck(cl, M, O, ast):
     for feature in cl.features:
         if isinstance(feature, AST.Attribute):
@@ -455,7 +460,7 @@ def typecheck(cl, M, O, ast):
                 formals_ids.append((formal.name_id.id, formal.type_id.id))
             type_name = feature.body_exp.get_type(cl.name_id, M, O + formals_ids, ast)
 
-
+# returns a string containing the implementation_map
 def get_implementation_map(ast):
     predefined_classes_str = ["Bool", "IO", "Int", "Object", "String"]
     to_return = "implementation_map\n"
@@ -491,7 +496,7 @@ def get_implementation_map(ast):
 
     return to_return
 
-
+# typechecking the non-expressions
 def check_class_map(ast, predefined_classes):
 
     predefined_names = ["Bool", "IO", "Int", "Object", "String"]
@@ -609,7 +614,7 @@ def check_class_map(ast, predefined_classes):
     for cl in ast:
         if cl.name_id.id == "Main":
             method_list = []
-            for feature in cl.features:
+            for feature in get_features(ast + predefined_classes, cl):
                 if not isinstance(feature, AST.Method):
                     continue
                 method_list.append(feature.name_id.id)
@@ -716,6 +721,7 @@ def check_class_map(ast, predefined_classes):
                           ": Type-Check: SELF_TYPE in formal " + formal.type_id.id)
                     exit(1)
 
+# returns a string containing the parent_map
 def get_parent_map(ast):
     to_return = "parent_map\n"
     to_return += str(len(ast) - 1) + "\n"
@@ -729,6 +735,7 @@ def get_parent_map(ast):
             to_return += cl.parent_id.id + "\n"
     return to_return
 
+# returns a string containing the annotated ast
 def get_annotated_ast(ast):
     to_return = str(len(ast)) + "\n"
     for cl in ast:
