@@ -35,6 +35,8 @@ class R(object):
 
 output = ""
 count = 0
+strings = []
+string_map = {}
 
 rself = R(0)
 racc = R(1)
@@ -58,6 +60,15 @@ def log(in_str):
     output += "\t\t;; " + in_str + "\n"
 
 def call(call_reg):
+    pr("push fp")
+    pr("push %s" % rself)
+    # pr("debug %s" % call_reg)
+    pr("mov %s <- %s" % (rself, racc))
+    pr("call %s" % call_reg)
+    pr("pop %s" % rself)
+    pr("pop fp")
+
+def call_new(call_reg):
     pr("push fp")
     pr("push %s" % rself)
     # pr("debug %s" % call_reg)

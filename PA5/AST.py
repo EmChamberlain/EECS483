@@ -2,6 +2,7 @@ import Utilities
 from Utilities import pr as pr
 from Utilities import log as log
 from Utilities import call as call
+from Utilities import call_new as call_new
 from Utilities import callee_init as callee_init
 from Utilities import ret as ret
 from Utilities import new_section as new_section
@@ -311,22 +312,33 @@ class Dynamic_Dispatch(Expression):
 
     def cgen(self, ro, imp_map, st):
         method_offset = -1
+        my_method = None
         for i, method in enumerate(imp_map[self.exp_type]):
             if method.name_id == self.method_id.id:
                 method_offset = i + vtable_methods_offset
+                my_method = method
+                break
         if method_offset == -1:
             print("Could not find method; Dynamic_Dispatch")
             exit(1)
+
+
+
+
         for i, arg in enumerate(reversed(self.args_exp_list)):
             arg_loc = arg.cgen(ro, imp_map, st)
             pr("push %s" % arg_loc)
 
+        # if my_method.body_exp.exp_name == 'internal':
+        #     my_method.body_exp.cgen(self.exp_type, imp_map, st)
+        #     return racc
+
         # get vtable pointer
         log("get vtable pointer dynamic")
-        pr("la %s <- %s..vtable" % (rtmp, self.exp_type))
-
+        lhs_loc = self.e_exp.cgen(ro, imp_map, st)
+        pr("ld %s <- %s[%d]" % (rtmp, lhs_loc, vtable_offset))
         pr("ld %s <- %s[%d]" % (rtmp, rtmp, method_offset))
-
+        pr("mov %s <- %s" % (racc, lhs_loc))
         call(rtmp)
 
         for i, arg in enumerate(reversed(self.args_exp_list)):
@@ -399,22 +411,31 @@ class Static_Dispatch(Expression):
 
     def cgen(self, ro, imp_map, st):
         method_offset = -1
-        for i, method in enumerate(imp_map[self.type_id.id]):
+        my_method = None
+        for i, method in enumerate(imp_map[self.type_id]):
             if method.name_id == self.method_id.id:
                 method_offset = i + vtable_methods_offset
+                my_method = method
+                break
         if method_offset == -1:
             print("Could not find method; Static_Dispatch")
             exit(1)
+
         for i, arg in enumerate(reversed(self.args_exp_list)):
             arg_loc = arg.cgen(ro, imp_map, st)
             pr("push %s" % arg_loc)
+
+        # if my_method.body_exp.exp_name == 'internal':
+        #     my_method.body_exp.cgen(self.type_id, imp_map, st)
+        #     return racc
 
         # get vtable pointer
         log("get vtable pointer static")
         pr("la %s <- %s..vtable" % (rtmp, self.type_id.id))
 
         pr("ld %s <- %s[%d]" % (rtmp, rtmp, method_offset))
-
+        lhs_loc = self.e_exp.cgen(ro, imp_map, st)
+        pr("mov %s <- %s" % (racc, lhs_loc))
         call(rtmp)
 
         for i, arg in enumerate(reversed(self.args_exp_list)):
@@ -480,16 +501,24 @@ class Self_Dispatch(Expression):
 
     def cgen(self, ro, imp_map, st):
         method_offset = -1
+        my_method = None
         for i, method in enumerate(imp_map[ro]):
             if method.name_id == self.method_id.id:
                 method_offset = i + vtable_methods_offset
+                my_method = method
+                break
         if method_offset == -1:
-            print("Could not find method; Self_Dispatch")
+            print("Could not find method; self_Dispatch")
             exit(1)
+
 
         for i, arg in enumerate(reversed(self.args_exp_list)):
             arg_loc = arg.cgen(ro, imp_map, st)
             pr("push %s" % arg_loc)
+
+        # if my_method.body_exp.exp_name == 'internal':
+        #     my_method.body_exp.cgen(ro, imp_map, st)
+        #     return racc
 
         # get vtable pointer
         log("get vtable pointer self")
@@ -497,7 +526,7 @@ class Self_Dispatch(Expression):
 
         pr("ld %s <- %s[%d]" % (rtmp, rtmp, method_offset))
 
-        call(rtmp)
+        call_new(rtmp)
 
         for i, arg in enumerate(reversed(self.args_exp_list)):
             pr("pop %s" % rtmp)
@@ -676,7 +705,7 @@ class New(Expression):
 
     def cgen(self, ro, imp_map, st):
         pr("la %s <- %s..new" % (rtmp, self.class_id.id))
-        call(rtmp)
+        call_new(rtmp)
         return racc
 
     def get_type(self, cl, M, O, ast):
@@ -995,7 +1024,7 @@ class Lt(Expression):
         Utilities.output += "LTEnd%d:\n" % Utilities.count
         pr("push %s" % racc)
         pr("la %s <- %s..new" % (racc, "Bool"))
-        call(racc)
+        call_new(racc)
         pr("pop %s" % rtmp)
         pr("st %s[%d] <- %s" % (racc, attributes_offset, rtmp))
 
@@ -1063,7 +1092,7 @@ class Le(Expression):
         Utilities.output += "LEEnd%d:\n" % Utilities.count
         pr("push %s" % racc)
         pr("la %s <- %s..new" % (racc, "Bool"))
-        call(racc)
+        call_new(racc)
         pr("pop %s" % rtmp)
         pr("st %s[%d] <- %s" % (racc, attributes_offset, rtmp))
 
@@ -1130,7 +1159,7 @@ class Eq(Expression):
         Utilities.output += "EQEnd%d:\n" % Utilities.count
         pr("push %s" % racc)
         pr("la %s <- %s..new" % (racc, "Bool"))
-        call(racc)
+        call_new(racc)
         pr("pop %s" % rtmp)
         pr("st %s[%d] <- %s" % (racc, attributes_offset, rtmp))
 
@@ -1377,7 +1406,7 @@ class Let(Expression):
         for i, attr in enumerate(self.binding_list):
             total_offset = attributes_offset + i + curr_length
             pr("la %s <- %s..new" % (rtmp, attr.type_id.id))
-            call(rtmp)
+            call_new(rtmp)
             if attr.value_exp is not None:
                 pr(";; cgen LET expression initializer")
 
@@ -1530,59 +1559,102 @@ class Internal(Expression):
         self.method_name = _method
 
     def cgen(self, ro, imp_map, st):
+        log(self.method_name)
         my_method = None
         for method in imp_map[ro]:
-            if (ro + "." + method.name_id) == self.method_name:
+            short_name = self.method_name[self.method_name.index(".") + 1:]
+            if method.name_id == short_name:
                 my_method = method
                 break
 
-        for i, formal in enumerate(reversed(my_method.formals_list)):
-            pr("push %s" % st[formal.name_id])
-        pr("la %s <- %s" % (rtmp, self.method_name))
-        call(rtmp)
+        # for i, formal in enumerate(reversed(my_method.formals_list)):
+            # pr("push %s" % st[formal.name_id])
+
+            # internal methods
+
+        #
+        # elif self.method_name == "Object.copy":
+        #     pr("mov r4 <- r0")
+        #     pr("ld r2 <- r4[%d]" % size_offset)
+        #     pr("alloc r1 r2")
+        #     Utilities.output += "Object.copy.while:\n"
+        #     pr("bz r2 Object.copy.whileEnd")
+        #     pr("ld r3 <- r4[0]")
+        #     pr("st r1[0] <- r3")
+        #     pr("li r3 <- 1")
+        #     pr("add r4 <- r4 r3")
+        #     pr("add r1 <- r1 r3")
+        #     pr("sub r2 <- r2 r3")
+        #     pr("jmp Object.copy.while")
+        #
+        #     Utilities.output += "Object.copy.whileEnd:\n"
+        #     pr("mov r1 <- r4")
+        # elif self.method_name == "IO.out_string":
+        #     pr("pop %s" % racc)
+        #     pr("ld r1 <- r1[%d]" % attributes_offset)
+        #     pr("syscall IO.out_string")
+        #     pr("mov r1 <- r0")
+        # elif self.method_name == "IO.out_int":
+        #     pr("pop %s" % racc)
+        #     pr("ld r1 <- r1[%d]" % attributes_offset)
+        #     pr("syscall IO.out_int")
+        #     pr("mov r1 <- r0")
+        # elif self.method_name == "IO.in_string":
+        #     new = New(0, Identifier(0, "String"))
+        #     new_loc = new.cgen("IO", imp_map, {})
+        #     pr("mov r2 <- r1")
+        #     pr("syscall IO.in_string")
+        #     pr("st r2[%d] <- r1" % attributes_offset)
+        #     pr("mov r1 <- r2")
+        # elif self.method_name == "IO.in_int":
+        #     new = New(0, Identifier(0, "Int"))
+        #     new_loc = new.cgen("IO", imp_map, {})
+        #     pr("mov r2 <- r1")
+        #     pr("syscall IO.in_int")
+        #     pr("st r2[%d] <- r1" % attributes_offset)
+        #     pr("mov r1 <- r2")
+        # elif self.method_name == "String.length":
+        #     new = New(0, Identifier(0, "Int"))
+        #     new_loc = new.cgen("String", imp_map, {})
+        #     pr("mov r3 <- r1")
+        #     pr("ld r1 <- r0[%d]" % attributes_offset)
+        #     pr("syscall String.length")
+        #     pr("st r3[%d] <- r1" % attributes_offset)
+        #     pr("mov r1 <- r3")
+        # elif self.method_name == "String.concat":
+        #     new = New(0, Identifier(0, "String"))
+        #     new_loc = new.cgen("String", imp_map, {})
+        #     pr("mov r3 <- r1")
+        #     pr("mov r1 <- r0")
+        #
+        #     pr("pop r2")
+        #     pr("syscall String.concat")
+        #     pr("st r3[%d] <- r1" % attributes_offset)
+        #     pr("mov r1 <- r3")
+        # elif self.method_name == "String.substr":
+        #     new = New(0, Identifier(0, "String"))
+        #     new_loc = new.cgen("String", imp_map, {})
+        #     pr("mov r3 <- r1")
+        #
+        #     pr("pop r2")
+        #     pr("ld r2 <- r2[%d]" % attributes_offset)
+        #     pr("pop r1")
+        #     pr("ld r1 <- r1[%d]" % attributes_offset)
+        #     pr("ld r0 <- r0[%d]" % attributes_offset)
+        #     pr("syscall String.substr")
+        #     pr("bnz r1 %s" % "String.substr.validString")
+        #
+        #     pr("la r1 <- the.substring.range.string")
+        #     pr("syscall IO.out_string")
+        #     pr("syscall exit")
+        #
+        #     Utilities.output += "String.substr.validString:\n"
+        #     pr("st r3[%d] <- r1" % attributes_offset)
+        #     pr("mov r1 <- r3")
+        else:
+            print("Internal exp switch defaulted: %s" % self.method_name)
+            exit(1)
+
         return racc
 
-        """
-
-
-        if self.method_name == "Object.Abort":
-
-
-            return racc
-        if self.method_name == "IO.out_int":
-            v_loc = st[my_method.formals_list[0].name_id]
-            pr("ld %s <- %s" % (racc, v_loc))
-            pr("mov %s <- %s" % (rtmp, racc))
-
-            pr("ld %s <- %s[%d]" % (rtmp, rtmp, attributes_offset))
-            pr("mov r1 <- %s" % rtmp)
-            pr("syscall IO.out_int")
-
-            return racc
-        if self.method_name == "IO.out_string":
-            v_loc = st[my_method.formals_list[0].name_id]
-            pr("ld %s <- %s" % (racc, v_loc))
-
-
-            pr("syscall IO.out_string")
-
-            return racc
-
-        if self.method_name == "Object.type_name":
-            new = New(self.lineno, Identifier(self.lineno, "String"))
-            new_loc = new.cgen(ro, imp_map, st)
-
-            pr("ld %s <- %s[%d]" % (rtmp, rself, vtable_offset))
-            pr("ld %s <- %s[%d]" % (rtmp, rtmp, vtable_object_offset))
-            pr("st %s[%d] <- %s" % (racc, attributes_offset, rtmp))
-
-            return racc
-        else:
-            pr(";; Placeholder")
-            pr(";; Placeholder")
-            pr(";; Placeholder")
-            pr(";; Placeholder")
-            pr(";; Placeholder")
-            return racc
-        """
 

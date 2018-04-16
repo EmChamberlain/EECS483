@@ -5,6 +5,7 @@ import Utilities
 from Utilities import pr as pr
 from Utilities import log as log
 from Utilities import call as call
+from Utilities import call_new as call_new
 from Utilities import callee_init as callee_init
 from Utilities import ret as ret
 from Utilities import new_section as new_section
@@ -38,10 +39,9 @@ def get_case_elem():
     body = get_type_expression()
     return AST.Case_Elem(var, type, body)
 
-strings = []
+
 
 def get_expression(lineno):
-    global strings
     name = get_line()
 
     if name == "assign":
@@ -134,8 +134,8 @@ def get_expression(lineno):
         return AST.Integer(lineno, int_const)
     elif name == "string":
         str_const = get_line()
-        strings.append(str_const)
-        return AST.String(lineno, str_const, "string%d" % (len(strings) - 1))
+        Utilities.strings.append(str_const)
+        return AST.String(lineno, str_const, "string%d" % (len(Utilities.strings) - 1))
     elif name == "identifier":
         var = get_identifier()
         return AST.Identifier_Exp(lineno, var)
@@ -339,9 +339,11 @@ def main():
     new_section("vtables", 0)
     for cls in classes:
         Utilities.output += "%s..vtable:\n" % cls
-        strings.append(cls)
-        pr("constant %s" % "string" + str(len(strings) - 1))
+        Utilities.strings.append(cls)
+        pr("constant %s" % "string" + str(len(Utilities.strings) - 1))
+        Utilities.string_map[cls] = "string" + str(len(Utilities.strings) - 1)
         pr("constant %s..new" % cls)
+
         if cls in imp_map:
             for method in imp_map[cls]:
                 pr("constant %s.%s" % (method.type_id, method.name_id))
@@ -350,7 +352,9 @@ def main():
     new_section("globals", 0)
     Utilities.output += "the.empty.string:\n\t\t constant \"\"\n"
     Utilities.output += "the.abort.string:\n\t\t constant \"abort\\n\"\n"
-    for i, string in enumerate(strings):
+
+    Utilities.output += "the.substring.range.string:\n\t\t constant \"ERROR: 0: Exception: String.substr out of range\\n\"\n"
+    for i, string in enumerate(Utilities.strings):
         Utilities.output += "%s:\n\t\t constant \"%s\"\n" % ("string" + str(i), string)
 
 
@@ -398,7 +402,7 @@ def main():
                 continue
 
             pr("la %s <- %s..new" % (rtmp, attr.type_id))
-            call(rtmp)
+            call_new(rtmp)
             if attr.init_exp is not None:
 
                 pr(";; cgen expression initializer %s.%s" % (cls, attr.name_id))
@@ -412,16 +416,34 @@ def main():
             st[attr.name_id] = rself.off(attributes_offset + i)
         ret(rself)
 
-
     # internal methods
     new_section("internal methods", 0)
 
+    # Utilities.output += "Object.copy:\n"
+    # callee_init()
+    # pr("ld r2 <- r0[%d]" % size_offset)
+    # pr("alloc r1 r2")
+    # Utilities.output += "Object.copy.while:\n"
+    # pr("bz r2 Object.copy.whileEnd")
+    # pr("ld r3 <- r0[0]")
+    # pr("st r1[0] <- r3")
+    # pr("li r3 <- 1")
+    # pr("add r0 <- r0 r3")
+    # pr("add r1 <- r1 r3")
+    # pr("sub r2 <- r2 r3")
+    # pr("jmp Object.copy.while")
+    #
+    # Utilities.output += "Object.copy.whileEnd:\n"
+    # pr("mov r1 <- r0")
+    # ret(racc)
+    log("abort")
     Utilities.output += "Object.abort:\n"
     callee_init()
     pr("la r1 <- the.abort.string")
     pr("syscall IO.out_string")
     pr("syscall exit")
 
+    log("type_name")
     Utilities.output += "Object.type_name:\n"
     callee_init()
     new = AST.New(0, AST.Identifier(0, "String"))
@@ -432,46 +454,114 @@ def main():
     pr("st %s[%d] <- %s" % (racc, attributes_offset, rtmp))
     ret(racc)
 
+    log("copy")
     Utilities.output += "Object.copy:\n"
     callee_init()
-    log("placeholder")
-    log("placeholder")
-    log("placeholder")
-    log("placeholder")
-    log("placeholder")
+    pr("ld r2 <- r0[%d]" % size_offset)
+    pr("alloc r1 r2")
     Utilities.output += "Object.copy.while:\n"
+    pr("bz r2 Object.copy.whileEnd")
+    pr("ld r3 <- r0[0]")
+    pr("st r1[0] <- r3")
+    pr("li r3 <- 1")
+    pr("add r0 <- r0 r3")
+    pr("add r1 <- r1 r3")
+    pr("sub r2 <- r2 r3")
+    pr("jmp Object.copy.while")
+
+
+    Utilities.output += "Object.copy.whileEnd:\n"
+    pr("mov r1 <- r0")
     ret(racc)
 
+    log("out_string")
     Utilities.output += "IO.out_string:\n"
     callee_init()
     pr("ld %s <- fp[3]" % racc)
+    pr("ld r1 <- r1[%d]" % attributes_offset)
     pr("syscall IO.out_string")
-    ret(rself)
+    pr("mov r1 <- r0")
+    ret(racc)
 
+    log("out_int")
     Utilities.output += "IO.out_int:\n"
     callee_init()
     pr("ld %s <- fp[3]" % racc)
-    pr("mov %s <- %s" % (rtmp, racc))
-
-    pr("ld %s <- %s[%d]" % (rtmp, rtmp, attributes_offset))
-    pr("mov r1 <- %s" % rtmp)
+    pr("ld r1 <- r1[%d]" % attributes_offset)
     pr("syscall IO.out_int")
-    ret(rself)
-    """
-    Utilities.output += "Object.type_name:\n"
-    callee_init()
+    pr("mov r1 <- r0")
     ret(racc)
 
-    Utilities.output += "Object.type_name:\n"
+    log("in_string")
+    Utilities.output += "IO.in_string:\n"
     callee_init()
+    new = AST.New(0, AST.Identifier(0, "String"))
+    new_loc = new.cgen("IO", imp_map, {})
+    pr("mov r2 <- r1")
+    pr("syscall IO.in_string")
+    pr("st r2[%d] <- r1" % attributes_offset)
+    pr("mov r1 <- r2")
     ret(racc)
 
-    Utilities.output += "Object.type_name:\n"
+    log("in_int")
+    Utilities.output += "IO.in_int:\n"
     callee_init()
+    new = AST.New(0, AST.Identifier(0, "Int"))
+    new_loc = new.cgen("IO", imp_map, {})
+    pr("mov r2 <- r1")
+    pr("syscall IO.in_int")
+    pr("st r2[%d] <- r1" % attributes_offset)
+    pr("mov r1 <- r2")
     ret(racc)
-    """
 
+    log("length")
+    Utilities.output += "String.length:\n"
+    callee_init()
+    new = AST.New(0, AST.Identifier(0, "Int"))
+    new_loc = new.cgen("String", imp_map, {})
+    pr("mov r3 <- r1")
+    pr("ld r1 <- r0[%d]" % attributes_offset)
+    pr("syscall String.length")
+    pr("st r3[%d] <- r1" % attributes_offset)
+    pr("mov r1 <- r3")
+    ret(racc)
 
+    log("concat")
+    Utilities.output += "String.concat:\n"
+    callee_init()
+    new = AST.New(0, AST.Identifier(0, "String"))
+    new_loc = new.cgen("String", imp_map, {})
+    pr("mov r3 <- r1")
+    pr("mov r1 <- r0")
+
+    pr("ld r2 <- fp[3]")
+    pr("syscall String.concat")
+    pr("st r3[%d] <- r1" % attributes_offset)
+    pr("mov r1 <- r3")
+    ret(racc)
+
+    log("substr")
+    Utilities.output += "String.substr:\n"
+    callee_init()
+    new = AST.New(0, AST.Identifier(0, "String"))
+    new_loc = new.cgen("String", imp_map, {})
+    pr("mov r3 <- r1")
+
+    pr("ld r2 <- fp[3]")
+    pr("ld r2 <- r2[%d]" % attributes_offset)
+    pr("ld r1 <- fp[4]")
+    pr("ld r1 <- r1[%d]" % attributes_offset)
+    pr("ld r0 <- r0[%d]" % attributes_offset)
+    pr("syscall String.substr")
+    pr("bnz r1 %s" % "String.substr.validString")
+
+    pr("la r1 <- the.substring.range.string")
+    pr("syscall IO.out_string")
+    pr("syscall exit")
+
+    Utilities.output += "String.substr.validString:\n"
+    pr("st r3[%d] <- r1" % attributes_offset)
+    pr("mov r1 <- r3")
 
 
     # methods
