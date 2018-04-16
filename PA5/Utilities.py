@@ -34,6 +34,7 @@ class R(object):
             return "r%d[%d]" % (self.id, self.offset)
 
 output = ""
+count = 0
 
 rself = R(0)
 racc = R(1)
@@ -73,10 +74,13 @@ def ret(return_register):
     pr("pop ra")
     pr("return")
 
+
 def new_section(title, indention):
     global output
     output += ("\t\t" * indention) + ";; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;\n"
     output += ("\t\t" * indention) + ";; %s\n" % title
+    output += ("\t\t" * indention) + ";; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;\n"
+
 
 
 

@@ -55,7 +55,9 @@ def get_expression(lineno):
         num_args = int(get_line())
         for i in range(num_args):
             args.append(get_type_expression())
-        return AST.Dynamic_Dispatch(lineno, e, method, args)
+        to_return = AST.Dynamic_Dispatch(lineno, e, method, args)
+        to_return.exp_type = e.exp_type
+        return to_return
     elif name == "static_dispatch":
         e = get_type_expression()
         type = get_identifier()
@@ -165,6 +167,8 @@ def get_type_expression():
     lineno = get_line()
     type_exp = get_line()
     exp = get_expression(lineno)
+    if isinstance(exp, AST.Dynamic_Dispatch):
+        return exp
     exp.exp_type = type_exp
     return exp
 
@@ -340,11 +344,12 @@ def main():
         pr("constant %s..new" % cls)
         if cls in imp_map:
             for method in imp_map[cls]:
-                pr("constant %s.%s" % (cls, method.name_id))
+                pr("constant %s.%s" % (method.type_id, method.name_id))
 
     # globals
     new_section("globals", 0)
     Utilities.output += "the.empty.string:\n\t\t constant \"\"\n"
+    Utilities.output += "the.abort.string:\n\t\t constant \"abort\\n\"\n"
     for i, string in enumerate(strings):
         Utilities.output += "%s:\n\t\t constant \"%s\"\n" % ("string" + str(i), string)
 
@@ -376,6 +381,7 @@ def main():
 
         # attributes
         new_section("attributes", 1)
+        st = {}
         for i, attr in enumerate(class_map[cls]):
 
             if attr.type_id == 'unboxed_int':
@@ -395,19 +401,88 @@ def main():
             call(rtmp)
             if attr.init_exp is not None:
 
-                pr(";; cgen expression initilizer")
-                # TODO: Might need to add info about already declared attributes
+                pr(";; cgen expression initializer %s.%s" % (cls, attr.name_id))
 
-                res = attr.init_exp.cgen(cls, imp_map, {})
+                res = attr.init_exp.cgen(cls, imp_map, st)
 
-                pr("st %s[%d] <- %s" % (rself, attributes_offset + i, racc))
-
+                pr("st %s[%d] <- %s" % (rself, attributes_offset + i, res))
+            else:
+                pr("li %s <- 0" % rtmp)
+                pr("st %s[%d] <- %s" % (rself, attributes_offset + i, rtmp))
+            st[attr.name_id] = rself.off(attributes_offset + i)
         ret(rself)
+
+
+    # internal methods
+    new_section("internal methods", 0)
+
+    Utilities.output += "Object.abort:\n"
+    callee_init()
+    pr("la r1 <- the.abort.string")
+    pr("syscall IO.out_string")
+    pr("syscall exit")
+
+    Utilities.output += "Object.type_name:\n"
+    callee_init()
+    new = AST.New(0, AST.Identifier(0, "String"))
+    new_loc = new.cgen("Object", imp_map, {})
+
+    pr("ld %s <- %s[%d]" % (rtmp, rself, vtable_offset))
+    pr("ld %s <- %s[%d]" % (rtmp, rtmp, vtable_object_offset))
+    pr("st %s[%d] <- %s" % (racc, attributes_offset, rtmp))
+    ret(racc)
+
+    Utilities.output += "Object.copy:\n"
+    callee_init()
+    log("placeholder")
+    log("placeholder")
+    log("placeholder")
+    log("placeholder")
+    log("placeholder")
+    Utilities.output += "Object.copy.while:\n"
+    ret(racc)
+
+    Utilities.output += "IO.out_string:\n"
+    callee_init()
+    pr("ld %s <- fp[3]" % racc)
+    pr("syscall IO.out_string")
+    ret(rself)
+
+    Utilities.output += "IO.out_int:\n"
+    callee_init()
+    pr("ld %s <- fp[3]" % racc)
+    pr("mov %s <- %s" % (rtmp, racc))
+
+    pr("ld %s <- %s[%d]" % (rtmp, rtmp, attributes_offset))
+    pr("mov r1 <- %s" % rtmp)
+    pr("syscall IO.out_int")
+    ret(rself)
+    """
+    Utilities.output += "Object.type_name:\n"
+    callee_init()
+    ret(racc)
+
+    Utilities.output += "Object.type_name:\n"
+    callee_init()
+    ret(racc)
+
+    Utilities.output += "Object.type_name:\n"
+    callee_init()
+    ret(racc)
+    """
+
+
+
 
     # methods
     new_section("methods", 0)
     for cls in classes:
+        if cls in ["Object", "IO", "Int", "String", "Bool"]:
+            continue
         for method in imp_map[cls]:
+            if method.type_id != cls:
+                continue
+
             Utilities.output += "%s.%s:\n" % (cls, method.name_id)
             callee_init()
 
@@ -442,7 +517,9 @@ def main():
     for i, method in enumerate(imp_map["Main"]):
         if method.name_id == "main":
             method_offset = i + vtable_methods_offset
-
+    if method_offset == -1:
+        print("Could not find method")
+        exit(1)
     pr("ld %s <- %s[%d]" % (rtmp, rtmp, method_offset))
     pr("push fp")
     pr("push r1")
