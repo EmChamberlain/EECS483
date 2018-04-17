@@ -1,4 +1,5 @@
 class FP(object):
+    offset = None
     def __init__(self, offset=None):
         self.offset = offset
 
@@ -37,6 +38,7 @@ output = ""
 count = 0
 strings = []
 string_map = {}
+errors = []
 
 rself = R(0)
 racc = R(1)
@@ -68,6 +70,15 @@ def call(call_reg):
     pr("pop %s" % rself)
     pr("pop fp")
 
+
+# for key in st:
+#     s = st[key]
+#     if isinstance(s, Utilities.FP):
+#         curr_offset = 0
+#         if s.offset is not None:
+#             curr_offset = s.offset
+#         st[key] = Utilities.FP(curr_offset + len(self.binding_list))
+
 def call_new(call_reg):
     pr("push fp")
     pr("push %s" % rself)
@@ -91,6 +102,7 @@ def new_section(title, indention):
     output += ("\t\t" * indention) + ";; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;\n"
     output += ("\t\t" * indention) + ";; %s\n" % title
     output += ("\t\t" * indention) + ";; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;\n"
+
 
 
 

@@ -319,8 +319,9 @@ attributes_offset = Utilities.attributes_offset
 
 
 def main():
-    global in_lines
 
+    global in_lines
+    sys.setrecursionlimit(2000)
     with open(sys.argv[1], 'r') as f:
         in_lines = [l.rstrip('\r\n') for l in f.readlines()]
 
@@ -350,12 +351,14 @@ def main():
 
     # globals
     new_section("globals", 0)
-    Utilities.output += "the.empty.string:\n\t\t constant \"\"\n"
-    Utilities.output += "the.abort.string:\n\t\t constant \"abort\\n\"\n"
+    Utilities.output += "the.empty.string:\n\t\tconstant \"\"\n"
+    Utilities.output += "the.abort.string:\n\t\tconstant \"abort\\n\"\n"
 
-    Utilities.output += "the.substring.range.string:\n\t\t constant \"ERROR: 0: Exception: String.substr out of range\\n\"\n"
+    Utilities.output += "the.substring.range.string:\n\t\tconstant \"ERROR: 0: Exception: String.substr out of range\\n\"\n"
     for i, string in enumerate(Utilities.strings):
-        Utilities.output += "%s:\n\t\t constant \"%s\"\n" % ("string" + str(i), string)
+        Utilities.output += "%s:\n\t\tconstant \"%s\"\n" % ("string" + str(i), string)
+    for error in Utilities.errors:
+        Utilities.output += error
 
 
     # constructors
@@ -410,6 +413,9 @@ def main():
                 res = attr.init_exp.cgen(cls, imp_map, st)
 
                 pr("st %s[%d] <- %s" % (rself, attributes_offset + i, res))
+
+            elif attr.type_id in ["Int", "Bool", "String"]:
+                pr("st %s[%d] <- %s" % (rself, attributes_offset + i, racc))
             else:
                 pr("li %s <- 0" % rtmp)
                 pr("st %s[%d] <- %s" % (rself, attributes_offset + i, rtmp))
@@ -436,14 +442,12 @@ def main():
     # Utilities.output += "Object.copy.whileEnd:\n"
     # pr("mov r1 <- r0")
     # ret(racc)
-    log("abort")
     Utilities.output += "Object.abort:\n"
     callee_init()
     pr("la r1 <- the.abort.string")
     pr("syscall IO.out_string")
     pr("syscall exit")
 
-    log("type_name")
     Utilities.output += "Object.type_name:\n"
     callee_init()
     new = AST.New(0, AST.Identifier(0, "String"))
@@ -454,11 +458,11 @@ def main():
     pr("st %s[%d] <- %s" % (racc, attributes_offset, rtmp))
     ret(racc)
 
-    log("copy")
     Utilities.output += "Object.copy:\n"
     callee_init()
     pr("ld r2 <- r0[%d]" % size_offset)
     pr("alloc r1 r2")
+    pr("push r1")
     Utilities.output += "Object.copy.while:\n"
     pr("bz r2 Object.copy.whileEnd")
     pr("ld r3 <- r0[0]")
@@ -469,12 +473,10 @@ def main():
     pr("sub r2 <- r2 r3")
     pr("jmp Object.copy.while")
 
-
     Utilities.output += "Object.copy.whileEnd:\n"
-    pr("mov r1 <- r0")
+    pr("pop r1")
     ret(racc)
 
-    log("out_string")
     Utilities.output += "IO.out_string:\n"
     callee_init()
     pr("ld %s <- fp[3]" % racc)
@@ -483,7 +485,6 @@ def main():
     pr("mov r1 <- r0")
     ret(racc)
 
-    log("out_int")
     Utilities.output += "IO.out_int:\n"
     callee_init()
     pr("ld %s <- fp[3]" % racc)
@@ -492,7 +493,6 @@ def main():
     pr("mov r1 <- r0")
     ret(racc)
 
-    log("in_string")
     Utilities.output += "IO.in_string:\n"
     callee_init()
     new = AST.New(0, AST.Identifier(0, "String"))
@@ -503,7 +503,6 @@ def main():
     pr("mov r1 <- r2")
     ret(racc)
 
-    log("in_int")
     Utilities.output += "IO.in_int:\n"
     callee_init()
     new = AST.New(0, AST.Identifier(0, "Int"))
@@ -514,7 +513,6 @@ def main():
     pr("mov r1 <- r2")
     ret(racc)
 
-    log("length")
     Utilities.output += "String.length:\n"
     callee_init()
     new = AST.New(0, AST.Identifier(0, "Int"))
@@ -526,32 +524,34 @@ def main():
     pr("mov r1 <- r3")
     ret(racc)
 
-    log("concat")
     Utilities.output += "String.concat:\n"
     callee_init()
     new = AST.New(0, AST.Identifier(0, "String"))
     new_loc = new.cgen("String", imp_map, {})
     pr("mov r3 <- r1")
-    pr("mov r1 <- r0")
+    pr("ld r1 <- r0[%d]" % attributes_offset)
 
     pr("ld r2 <- fp[3]")
+    pr("ld r2 <- r2[%d]" % attributes_offset)
     pr("syscall String.concat")
     pr("st r3[%d] <- r1" % attributes_offset)
     pr("mov r1 <- r3")
     ret(racc)
 
-    log("substr")
     Utilities.output += "String.substr:\n"
     callee_init()
     new = AST.New(0, AST.Identifier(0, "String"))
     new_loc = new.cgen("String", imp_map, {})
-    pr("mov r3 <- r1")
+    pr("mov r5 <- r1")
+
+    pr("ld r0 <- r0[%d]" % attributes_offset)
+
+    pr("ld r1 <- fp[4]")
+    pr("ld r1 <- r1[%d]" % attributes_offset)
 
     pr("ld r2 <- fp[3]")
     pr("ld r2 <- r2[%d]" % attributes_offset)
-    pr("ld r1 <- fp[4]")
-    pr("ld r1 <- r1[%d]" % attributes_offset)
-    pr("ld r0 <- r0[%d]" % attributes_offset)
+
     pr("syscall String.substr")
     pr("bnz r1 %s" % "String.substr.validString")
 
@@ -562,6 +562,7 @@ def main():
     Utilities.output += "String.substr.validString:\n"
     pr("st r3[%d] <- r1" % attributes_offset)
     pr("mov r1 <- r3")
+    ret(racc)
 
 
     # methods
@@ -581,7 +582,8 @@ def main():
                 st[attribute.name_id] = rself.off(attributes_offset + i)
 
             for i, formal in enumerate(method.formals_list):
-                st[formal.name_id] = Utilities.FP(i + 3)
+                z = len(method.formals_list) + 2 - i
+                st[formal.name_id] = Utilities.FP(z)
 
             st["self"] = rself
 

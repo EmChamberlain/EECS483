@@ -286,6 +286,8 @@ class Dynamic_Dispatch(Expression):
     method_id = None
     args_exp_list = []
     to_print = None
+    error_label = None
+    string_label = None
 
 
     def __init__(self, _lineno, _e, _method, _args):
@@ -294,6 +296,12 @@ class Dynamic_Dispatch(Expression):
         self.e_exp = _e
         self.method_id = _method
         self.args_exp_list = _args
+        self.error_label = "DispatchNoError%d" % Utilities.count
+        self.string_label = "DispatchErrorString%d" % Utilities.count
+        Utilities.count += 1
+        error_string = "ERROR: %s: Exception: dispatch on void" % self.lineno
+        Utilities.errors.append("%s:\n\t\tconstant \"%s\"\n" % (self.string_label, error_string))
+        Utilities.count += 1
 
     def __str__(self):
 
@@ -313,7 +321,14 @@ class Dynamic_Dispatch(Expression):
     def cgen(self, ro, imp_map, st):
         method_offset = -1
         my_method = None
-        for i, method in enumerate(imp_map[self.exp_type]):
+
+
+
+        use_type = self.exp_type
+        if use_type == "SELF_TYPE":
+            use_type = ro
+
+        for i, method in enumerate(imp_map[use_type]):
             if method.name_id == self.method_id.id:
                 method_offset = i + vtable_methods_offset
                 my_method = method
@@ -325,7 +340,7 @@ class Dynamic_Dispatch(Expression):
 
 
 
-        for i, arg in enumerate(reversed(self.args_exp_list)):
+        for i, arg in enumerate(self.args_exp_list):
             arg_loc = arg.cgen(ro, imp_map, st)
             pr("push %s" % arg_loc)
 
@@ -334,8 +349,16 @@ class Dynamic_Dispatch(Expression):
         #     return racc
 
         # get vtable pointer
-        log("get vtable pointer dynamic")
+        log("get vtable pointer dynamic: %s.%s" % (use_type, self.method_id.id))
         lhs_loc = self.e_exp.cgen(ro, imp_map, st)
+        pr("bnz %s %s" % (lhs_loc, self.error_label))
+        # errored out
+        pr("la r1 <- %s" % self.string_label)
+        pr("syscall IO.out_string")
+        pr("syscall exit")
+
+        # not errored
+        Utilities.output += "%s:\n" % self.error_label
         pr("ld %s <- %s[%d]" % (rtmp, lhs_loc, vtable_offset))
         pr("ld %s <- %s[%d]" % (rtmp, rtmp, method_offset))
         pr("mov %s <- %s" % (racc, lhs_loc))
@@ -412,7 +435,7 @@ class Static_Dispatch(Expression):
     def cgen(self, ro, imp_map, st):
         method_offset = -1
         my_method = None
-        for i, method in enumerate(imp_map[self.type_id]):
+        for i, method in enumerate(imp_map[self.type_id.id]):
             if method.name_id == self.method_id.id:
                 method_offset = i + vtable_methods_offset
                 my_method = method
@@ -430,15 +453,17 @@ class Static_Dispatch(Expression):
         #     return racc
 
         # get vtable pointer
-        log("get vtable pointer static")
+        log("get vtable pointer static: %s.%s" % (self.type_id.id, self.method_id.id))
         pr("la %s <- %s..vtable" % (rtmp, self.type_id.id))
 
         pr("ld %s <- %s[%d]" % (rtmp, rtmp, method_offset))
+        pr("push %s" % rtmp)
         lhs_loc = self.e_exp.cgen(ro, imp_map, st)
         pr("mov %s <- %s" % (racc, lhs_loc))
+        pr("pop %s" % rtmp)
         call(rtmp)
 
-        for i, arg in enumerate(reversed(self.args_exp_list)):
+        for i, arg in enumerate(self.args_exp_list):
             pr("pop %s" % rtmp)
 
         return racc
@@ -502,6 +527,7 @@ class Self_Dispatch(Expression):
     def cgen(self, ro, imp_map, st):
         method_offset = -1
         my_method = None
+
         for i, method in enumerate(imp_map[ro]):
             if method.name_id == self.method_id.id:
                 method_offset = i + vtable_methods_offset
@@ -512,7 +538,7 @@ class Self_Dispatch(Expression):
             exit(1)
 
 
-        for i, arg in enumerate(reversed(self.args_exp_list)):
+        for i, arg in enumerate(self.args_exp_list):
             arg_loc = arg.cgen(ro, imp_map, st)
             pr("push %s" % arg_loc)
 
@@ -521,7 +547,7 @@ class Self_Dispatch(Expression):
         #     return racc
 
         # get vtable pointer
-        log("get vtable pointer self")
+        log("get vtable pointer self: %s.%s" % (ro, self.method_id.id))
         pr("ld %s <- %s[%d]" % (rtmp, rself, vtable_offset))
 
         pr("ld %s <- %s[%d]" % (rtmp, rtmp, method_offset))
@@ -580,23 +606,26 @@ class If(Expression):
         return to_return
 
     def cgen(self, ro, imp_map, st):
+        true_label = "True%d" % Utilities.count
+        false_label = "False%d" % Utilities.count
+        end_label = "Fi%d" % Utilities.count
+        Utilities.count += 1
         pred_loc = self.pred_exp.cgen(ro, imp_map, st)
         pr("ld %s <- %s[%d]" % (rtmp, pred_loc, attributes_offset))
-        pr("bnz %s True%d" % (rtmp, Utilities.count))
-        pr("bz %s False%d" % (rtmp, Utilities.count))
+        pr("bnz %s %s" % (rtmp, true_label))
+        pr("bz %s %s" % (rtmp, false_label))
         # true branch
-        Utilities.output += "True%d:\n" % Utilities.count
+        Utilities.output += "%s:\n" % true_label
         ret_loc = self.then_exp.cgen(ro, imp_map, st)
         pr("mov %s <- %s" % (racc, ret_loc))
-        pr("jmp Fi%d" % Utilities.count)
+        pr("jmp %s" % end_label)
         # false branch
-        Utilities.output += "False%d:\n" % Utilities.count
+        Utilities.output += "%s:\n" % false_label
         ret_loc = self.else_exp.cgen(ro, imp_map, st)
         pr("mov %s <- %s" % (racc, ret_loc))
-        pr("jmp Fi%d" % Utilities.count)
+        pr("jmp %s" % end_label)
         # end label
-        Utilities.output += "Fi%d:\n" % Utilities.count
-        Utilities.count += 1
+        Utilities.output += "%s:\n" % end_label
         return racc
 
     def get_type(self, cl, M, O, ast):
@@ -727,24 +756,28 @@ class Isvoid(Expression):
         return to_return
 
     def cgen(self, ro, imp_map, st):
+        void_label = "IsVoid%d" % Utilities.count
+        end_label = "IsVoidEnd%d" % Utilities.count
+        Utilities.count += 1
+
+
         exp_loc = self.e_exp.cgen(ro, imp_map, st)
-        pr("bz %s IsVoid%d" % (racc, Utilities.count))
+        pr("bz %s %s" % (racc, void_label))
         # not void
         pr("li %s <- %s" % (rtmp, 0))
-        pr("jmp IsVoidEnd%d" % Utilities.count)
+        pr("jmp %s" % end_label)
         # is void
-        Utilities.output += "IsVoid%d:\n" % Utilities.count
+        Utilities.output += "%s:\n" % void_label
         pr("li %s <- %s" % (rtmp, 1))
-        pr("jmp IsVoidEnd%d" % Utilities.count)
+        pr("jmp %s" % end_label)
         # end of is void
-        Utilities.output += "IsVoidEnd%d:\n" % Utilities.count
+        Utilities.output += "%s:\n" % end_label
         pr("push %s" % rtmp)
         new = New(self.lineno, Identifier(self.lineno, "Bool"))
         new_loc = new.cgen(ro, imp_map, st)
         pr("pop %s" % rtmp)
         pr("st %s[%d] <- %s" % (new_loc, attributes_offset, rtmp))
         pr("mov %s <- %s" % (racc, new_loc))
-        Utilities.count += 1
         return racc
 
     def get_type(self, cl, M, O, ast):
@@ -927,12 +960,19 @@ class Times(Expression):
 class Divide(Expression):
     x_exp = None
     y_exp = None
+    error_label = None
+    string_label = None
 
     def __init__(self, _lineno, _x, _y):
         Expression.__init__(self, _lineno)
         self.exp_name = "divide"
         self.x_exp = _x
         self.y_exp = _y
+        self.error_label = "DivNoError%d" % Utilities.count
+        self.string_label = "DivErrorString%d" % Utilities.count
+        error_string = "ERROR: %s: Exception: divide by zero" % self.lineno
+        Utilities.errors.append("%s:\n\t\tconstant \"%s\"\n" % (self.string_label, error_string))
+        Utilities.count += 1
 
     def __str__(self):
         to_return = Expression.__str__(self)
@@ -941,13 +981,24 @@ class Divide(Expression):
         return to_return
 
     def cgen(self, ro, imp_map, st):
+        # Utilities.output += "the.empty.string:\n\t\t constant \"\"\n"
+
+
         x_loc = self.x_exp.cgen(ro, imp_map, st)
         pr("ld %s <- %s[%d]" % (x_loc, x_loc, attributes_offset))
 
         pr("push %s" % x_loc)
         y_loc = self.y_exp.cgen(ro, imp_map, st)
         # TODO: Divide by zero check should probably go here
+        pr("ld r3 <- r1[%d]" % attributes_offset)
+        pr("bnz r3 %s" % self.error_label)
+        # errored out
+        pr("la r1 <- %s" % self.string_label)
+        pr("syscall IO.out_string")
+        pr("syscall exit")
 
+        # not errored
+        Utilities.output += "%s:\n" % self.error_label
         pr("pop %s" % rtmp)
 
         pr("mov %s <- %s" % (racc, y_loc))
@@ -1001,6 +1052,7 @@ class Lt(Expression):
 
     def cgen(self, ro, imp_map, st):
         # TODO: I don't think this handles custom object comparison
+
         x_loc = self.x_exp.cgen(ro, imp_map, st)
         pr("mov %s <- %s" % (rtmp, x_loc))
         pr("ld %s <- %s[%d]" % (rtmp, rtmp, attributes_offset))
@@ -1309,7 +1361,11 @@ class String(Expression):
         return to_return
 
     def cgen(self, ro, imp_map, st):
-        pr("la %s <- %s" % (racc, self.label))
+        new = New(self.lineno, Identifier(self.lineno, "String"))
+        new_loc = new.cgen(ro, imp_map, st)
+
+        pr("la %s <- %s" % (rtmp, self.label))
+        pr("st %s[%d] <- %s" % (racc, attributes_offset, rtmp))
         return racc
 
     def get_type(self, cl, M, O, ast):
@@ -1331,7 +1387,12 @@ class Identifier_Exp(Expression):
         return to_return
 
     def cgen(self, ro, imp_map, st):
-        pr("ld %s <- %s" % (racc, st[self.var_id.id]))
+        loc = st[self.var_id.id]
+        if loc.offset != None:
+            pr("ld %s <- %s" % (racc, loc))
+        else:
+            pr("mov %s <- %s" % (racc, loc))
+
         return racc
 
     def get_type(self, cl, M, O, ast):
@@ -1400,25 +1461,36 @@ class Let(Expression):
     def cgen(self, ro, imp_map, st):
         # let bindings
         new_section("Let bindings", 1)
-        curr_length = len(st)
+        st_copy = st.copy()
+        curr_length = len(st_copy)
+        current_depth = 0
 
+        for key in st_copy:
+            s = st_copy[key]
+            if isinstance(s, Utilities.FP):
+                if s.offset is not None and s.offset < current_depth:
+                    current_depth = s.offset
 
         for i, attr in enumerate(self.binding_list):
-            total_offset = attributes_offset + i + curr_length
             pr("la %s <- %s..new" % (rtmp, attr.type_id.id))
             call_new(rtmp)
             if attr.value_exp is not None:
                 pr(";; cgen LET expression initializer")
 
-                res = attr.value_exp.cgen(ro, imp_map, st)
-
-                pr("st %s[%d] <- %s" % (rself, total_offset, res))
+                res = attr.value_exp.cgen(ro, imp_map, st_copy)
+                pr("push %s" % res)
+            elif attr.type_id.id in ["Int", "Bool", "String"]:
+                pr("push %s" % racc)
             else:
                 pr("li %s <- 0" % rtmp)
-                pr("st %s[%d] <- %s" % (rself, attributes_offset + i, rtmp))
-            st[attr.var_id.id] = rself.off(total_offset)
+                pr("push %s" % rtmp)
+            st_copy[attr.var_id.id] = Utilities.FP(-1*(i + 1) + current_depth)
+        log("LET body")
+        exp_loc = self.body_exp.cgen(ro, imp_map, st_copy)
 
-        exp_loc = self.body_exp.cgen(ro, imp_map, st)
+        for i, attr in enumerate(self.binding_list):
+            pr("pop %s" % rtmp)
+
         pr("mov %s <- %s" % (racc, exp_loc))
         return racc
 
@@ -1496,7 +1568,7 @@ class Case(Expression):
         for elem in self.case_elem_list:
             Utilities.output += elem.label + ":\n"
             st_copy = st.copy()
-            st_copy[elem.var_id.id] = Utilities.FP(0)
+            st_copy[elem.var_id.id] = Utilities.FP(-1)
             exp_loc = elem.body_exp.cgen(ro, imp_map, st_copy)
             pr("mov %s <- %s" % (racc, exp_loc))
             pr("jmp %s" % ending_label)
